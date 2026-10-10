@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>혜움컨설팅 매출매입 관리</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 1.5rem;
+    font-family: "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Malgun Gothic", sans-serif;
+    background:
+      radial-gradient(ellipse at 20% 50%, rgba(0,82,157,.08) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 20%, rgba(0,160,233,.10) 0%, transparent 50%),
+      #f7f8fa;
+    color: #1f2328;
+  }
+  .card {
+    background: #fff; border: 1px solid #e3e6ea; border-radius: 18px;
+    padding: 2.5rem 2rem; width: 100%; max-width: 380px; text-align: center;
+    box-shadow: 0 10px 34px rgba(16,24,40,.08);
+  }
+  h1 { font-size: 1.35rem; margin: 0 0 .4rem; letter-spacing: -.02em; }
+  .sub { color: #6b7280; font-size: .85rem; margin: 0 0 1.9rem; }
+  a.btn {
+    display: block; text-decoration: none; padding: .95rem 1rem; border-radius: 11px;
+    font-size: 1rem; font-weight: 700; margin-bottom: .7rem; transition: transform .08s, box-shadow .15s;
+  }
+  a.btn:active { transform: translateY(1px); }
+  .admin { background: #00529d; color: #fff; box-shadow: 0 4px 14px rgba(0,82,157,.28); }
+  .admin:hover { background: #00417e; }
+  .staff { background: #fff; color: #00529d; border: 1.5px solid #cfd8e3; }
+  .staff:hover { border-color: #00529d; background: #f5f9ff; }
+  .note { color: #9aa2ad; font-size: .72rem; margin-top: 1.4rem; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>혜움컨설팅</h1>
+    <p class="sub">매출 · 매입 관리</p>
+
+    <a class="btn admin" id="go-admin" href="#">관리자로 들어가기</a>
+    <a class="btn staff" id="go-staff" href="#">직원으로 들어가기</a>
+
+    <p class="note">
+      누르면 관리 화면으로 넘어갑니다.<br>
+      이 주소를 즐겨찾기에 넣어두세요.
+    </p>
+  </div>
+
+<script src="app-url.js"></script>
+<script>
+  // 버튼에 실제 주소를 달아준다 (주소는 app-url.js 한 곳에만 적혀 있다)
+  document.getElementById('go-admin').href = APP_URL;
+  document.getElementById('go-staff').href = APP_URL + '?site=staff';
+</script>
+</body>
+</html>
