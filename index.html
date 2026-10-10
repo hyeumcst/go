@@ -45,7 +45,7 @@
     <a class="btn staff" id="go-staff" href="#">직원으로 들어가기</a>
 
     <p class="note">
-      누르면 관리 화면으로 넘어갑니다.<br>
+      
       이 주소를 즐겨찾기에 넣어두세요.
     </p>
   </div>
@@ -53,8 +53,9 @@
 <script src="app-url.js"></script>
 <script>
   // 버튼에 실제 주소를 달아준다 (주소는 app-url.js 한 곳에만 적혀 있다)
-  document.getElementById('go-admin').href = APP_URL;
-  document.getElementById('go-staff').href = APP_URL + '?site=staff';
+  // 깃허브 안의 화면으로 바로 간다 (구글 주소로 넘어가지 않는다)
+  document.getElementById('go-admin').href = 'admin/';
+  document.getElementById('go-staff').href = 'staff/';
 </script>
 </body>
 </html>
