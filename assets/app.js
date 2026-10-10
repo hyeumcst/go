@@ -377,19 +377,27 @@ function initLogin() {
 }
 
 /*
- * 직원(user)에게 보여줄 메뉴.
+ * 직원에게 보여줄 메뉴.
  *
- * 대표님 지시 (2026-10-10): 직원 사이트는 과정등록 · 대시보드 ·
- * 매출·매입 분석 · 고객사까지만 보이게 한다.
+ * 대표님 지시 (2026-10-10):
+ *   과정 등록 · 대시보드 · 매출·매입 분석 · 과정(매출/매입) 목록
+ *   그리고 설정은 「자기 비밀번호 변경」만
  *
  * ⚠️ 메뉴를 감추는 것은 「보기 편하게」일 뿐이고, 실제 차단은 서버가 한다.
  *    (Auth.gs 의 requireAdmin — 직원은 과정 삭제·명단 등록·입금 체크·
- *     정산자료를 아예 할 수 없다)
+ *     정산자료·계정 관리를 아예 할 수 없다)
  */
-const STAFF_ROUTES = ['project-form', 'dashboard', 'analytics', 'ent-client', 'password'];
+const STAFF_ROUTES = ['project-form', 'dashboard', 'analytics', 'projects', 'password'];
 
-/** 이 사람에게 이 메뉴를 보여줄지 */
+/**
+ * 이 사람에게 이 메뉴를 보여줄지.
+ *
+ * 직원 주소(/staff)로 들어오면 관리자가 들어와도 직원 메뉴만 보인다.
+ * 「직원 사이트는 직원이 보는 그대로」여야 확인하기 쉽기 때문이다.
+ * 관리자 주소(/admin)에서는 관리자에게 전부 보인다.
+ */
 function canSeeRoute(user, route) {
+  if (siteKind() === 'staff') return STAFF_ROUTES.indexOf(route) >= 0;
   if (user && user.role === 'admin') return true;
   return STAFF_ROUTES.indexOf(route) >= 0;
 }
@@ -500,8 +508,8 @@ function initApp() {
             item('staff', '직원 · 외부영업자')
           ])}
           ${section('설정', [
-            item('password', '비밀번호 변경'),
-            item('users', '로그인 계정')
+            item('password', '내 비밀번호 변경'),
+            item('users', '직원 계정 관리')
           ])}
         </nav>
         <div class="sidebar-footer">
@@ -3701,11 +3709,15 @@ async function renderUsers() {
 
   document.getElementById('main-content').innerHTML = [
     '<div class="page-header"><div>',
-    '  <h2>로그인 계정</h2>',
-    '  <p class="subtitle">직원 계정을 추가하고 권한을 정합니다. 비밀번호는 해시로만 저장되어 여기서도 볼 수 없습니다.</p>',
+    '  <h2>직원 계정 관리</h2>',
+    '  <p class="subtitle">직원이 <b>hyeumcst.github.io/go/staff</b> 로 들어갈 때 쓸 아이디와 비밀번호를 만듭니다.</p>',
     '</div>',
     '<button class="btn btn-primary" onclick="userForm()">＋ 계정 추가</button>',
     '</div>',
+    '<div class="tab-desc" style="margin:0 0 1rem"><span class="ico">🔒</span><span>',
+    '비밀번호는 알아볼 수 없는 형태로만 저장됩니다. 그래서 <b>여기서도 볼 수 없고</b>, ',
+    '잊어버렸을 때는 [비밀번호] 버튼으로 <b>새로 정해주시면</b> 됩니다.',
+    '</span></div>',
     '<div class="table-container"><table class="data-table">',
     '<thead><tr><th>이름</th><th>아이디</th><th class="th-mid">권한</th>',
     '<th class="th-mid">상태</th><th>최근 로그인</th><th style="width:13rem"></th></tr></thead><tbody>',
@@ -3778,7 +3790,8 @@ function userForm(id) {
         + '</select></div>'),
     '    </div>',
     '    <div class="tab-desc" style="margin:0.9rem 0 0"><span class="ico">💡</span>',
-    '      <span>직원은 <b>과정 등록 · 대시보드 · 매출·매입 분석 · 고객사</b>까지만 볼 수 있습니다.</span></div>',
+    '      <span><b>직원</b>은 과정 등록 · 대시보드 · 매출·매입 분석 · 과정 목록과',
+    '      자기 비밀번호 변경만 볼 수 있습니다.<br><b>관리자</b>는 전부 볼 수 있습니다.</span></div>',
     '  </div>',
     '  <div class="modal-footer">',
     '    <button class="btn btn-ghost" onclick="this.closest(\'.modal-overlay\').remove()">취소</button>',
