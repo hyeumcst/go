@@ -4,4 +4,4 @@
  * Apps Script 를 다시 배포하면 주소가 바뀝니다.
  * 그때 아래 APP_URL 만 새 주소로 바꿔서 깃허브에 올리면 끝입니다.
  */
-var APP_URL = 'https://script.google.com/macros/s/AKfycby1Xdx_Fh9F81ELRZYZkx4HJ7-psj2NseGQTk2SCsMhkgXcb1XtyRAOuNStZYsdMLn4/exec';
+var APP_URL = 'https://script.google.com/macros/s/AKfycbzRirl1FLkiHhrRT6HlkwUjk_JALQaIeqCgK_DdXuX_H_JdlclksoFTXuIpX_e8Aumr/exec';
