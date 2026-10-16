@@ -213,17 +213,20 @@ const API = {
 
   /**
    * 사이트의 모든 자료를 엑셀 파일로 내 PC 에 받는다.
-   * 구글 드라이브를 거치지 않는다 (서버가 만들고 바로 지운다).
+   *
+   * 서버는 자료만 보내고, 엑셀 파일은 이 브라우저가 만든다.
+   * 구글 드라이브를 전혀 거치지 않아서 빠르고 남는 파일도 없다.
    */
   async downloadAll(params = {}) {
-    const r = await this.get('/bulk/excel' + this.qs(params));
-    saveFile(r.base64, r.filename);
+    const r = await this.get('/bulk/data' + this.qs(params));
+    makeExcel(r.sheets, r.filename);
     return r;
   },
 
-  /** 고친 엑셀을 올려 「무엇이 바뀌는지」 먼저 받아본다 (저장하지 않음) */
-  uploadPreview(base64, filename) {
-    return this.post('/bulk/preview', { base64: base64, filename: filename });
+  /** 고친 엑셀을 읽어 「무엇이 바뀌는지」 먼저 받아본다 (저장하지 않음) */
+  async uploadPreview(file) {
+    const sheets = await readExcel(file);
+    return this.post('/bulk/preview', { sheets: sheets });
   },
 
   /** 미리보기에서 본 그대로 반영한다 */
@@ -232,37 +235,58 @@ const API = {
   }
 };
 
+/* ───────── 엑셀 만들기 · 읽기 (브라우저에서) ───────── */
+
 /**
- * 서버가 보내준 파일(글자로 담긴 것)을 내 PC 에 저장한다.
+ * 자료를 엑셀 파일로 만들어 내 PC 에 저장한다.
  * 다운로드 폴더에 바로 떨어진다.
  */
-function saveFile(base64, filename) {
-  const bin = atob(base64);
-  const buf = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+function makeExcel(sheets, filename) {
+  const wb = XLSX.utils.book_new();
 
-  const blob = new Blob([buf], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  sheets.forEach(function (s) {
+    const grid = [s.header].concat(s.rows);
+    const ws = XLSX.utils.aoa_to_sheet(grid);
+
+    // 칸 너비를 글자 수에 맞춰 잡아준다
+    ws['!cols'] = s.header.map(function (h, i) {
+      let w = String(h).length + 2;
+      for (let r = 0; r < Math.min(s.rows.length, 200); r++) {
+        const v = s.rows[r][i];
+        if (v !== null && v !== undefined) w = Math.max(w, String(v).length + 2);
+      }
+      return { wch: Math.min(Math.max(w, 6), 40) };
+    });
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+    XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
   });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+  XLSX.writeFile(wb, filename, { bookType: 'xlsx', compression: true });
 }
 
-/** 고른 파일을 글자로 바꾼다 (서버로 보내기 위해) */
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
+/**
+ * 고른 엑셀 파일을 읽어 「시트이름 → 표」 꼴로 바꾼다.
+ * 이것을 서버에 보내면 서버가 무엇이 바뀌는지 알아낸다.
+ */
+function readExcel(file) {
+  return new Promise(function (resolve, reject) {
     const fr = new FileReader();
-    fr.onload = () => {
-      const s = String(fr.result);
-      resolve(s.slice(s.indexOf(',') + 1));      // "data:...;base64," 를 떼어낸다
+    fr.onload = function () {
+      try {
+        const wb = XLSX.read(new Uint8Array(fr.result), { type: 'array' });
+        const out = {};
+        wb.SheetNames.forEach(function (name) {
+          out[String(name).trim()] = XLSX.utils.sheet_to_json(wb.Sheets[name], {
+            header: 1, raw: true, defval: '', blankrows: false
+          });
+        });
+        resolve(out);
+      } catch (e) {
+        reject(new Error('엑셀 파일을 읽지 못했습니다. (' + e.message + ')'));
+      }
     };
-    fr.onerror = () => reject(new Error('파일을 읽지 못했습니다.'));
-    fr.readAsDataURL(file);
+    fr.onerror = function () { reject(new Error('파일을 읽지 못했습니다.')); };
+    fr.readAsArrayBuffer(file);
   });
 }

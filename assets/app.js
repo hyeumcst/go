@@ -3761,8 +3761,7 @@ async function bulkUpload(input) {
   box.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
   try {
-    const b64 = await fileToBase64(file);
-    const p = await API.uploadPreview(b64, file.name);
+    const p = await API.uploadPreview(file);
     BULK.preview = p;
     renderBulkPreview(p);
   } catch (e) {
