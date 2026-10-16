@@ -248,6 +248,16 @@ function makeExcel(sheets, filename) {
     const grid = [s.header].concat(s.rows);
     const ws = XLSX.utils.aoa_to_sheet(grid);
 
+    /* 돈 칸은 천 단위마다 쉼표를 찍는다 (1,250,000) */
+    (s.money || []).forEach(function (isMoney, col) {
+      if (!isMoney) return;
+      for (let r = 1; r <= s.rows.length; r++) {
+        const ref = XLSX.utils.encode_cell({ r: r, c: col });
+        const cell = ws[ref];
+        if (cell && cell.t === 'n') cell.z = '#,##0';
+      }
+    });
+
     // 칸 너비를 글자 수에 맞춰 잡아준다
     ws['!cols'] = s.header.map(function (h, i) {
       let w = String(h).length + 2;

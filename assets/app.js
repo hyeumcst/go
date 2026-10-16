@@ -506,7 +506,7 @@ function initApp() {
     <div class="app-layout">
       <button class="sidebar-toggle" id="sidebar-toggle">☰</button>
       <aside class="sidebar" id="sidebar">
-        <div class="sidebar-header">
+        <div class="sidebar-header" id="brand-home" title="대시보드로 이동">
           <img alt="혜움컨설팅" class="sidebar-logo light">
           <img alt="혜움컨설팅" class="sidebar-logo dark">
           <p class="brand-sub">Finance Management</p>
@@ -575,6 +575,14 @@ function initApp() {
   MISSING_IDS = [];
   attachLogos();                 // 그림은 화면을 그린 뒤에 붙인다
   setupThemeToggle();
+
+  // 로고를 누르면 대시보드로 (직원도 대시보드는 볼 수 있다)
+  onId('brand-home', 'click', () => {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const d = document.querySelector('.nav-item[data-route="dashboard"]');
+    if (d) d.classList.add('active');
+    navigate('dashboard');
+  });
 
   onId('sidebar-toggle', 'click', () => {
     const s = document.getElementById('sidebar');
@@ -942,7 +950,16 @@ async function renderDashboard() {
       '<div class="dash-grid">',
       '  <div class="chart-card wide">',
       '    <h3>' + icon('chart', 18) + ' ' + DASH.year + '년 월별 매출'
-      + '      <span class="hint">막대를 누르면 그 달만 봅니다</span></h3>',
+      /*
+       * 한 달을 고르면 「연간 보기」 버튼이 나온다.
+       * 전에는 같은 막대를 다시 눌러야 풀렸는데 그걸 알기 어려웠다.
+       */
+      + (DASH.month
+        ? '<button type="button" class="yr-back" onclick="setDash(\'month\', \'\')">'
+          + '↩ 연간 보기</button>'
+          + '<span class="hint">지금 ' + parseInt(DASH.month) + '월만 보고 있습니다</span>'
+        : '<span class="hint">막대를 누르면 그 달만 봅니다</span>')
+      + '</h3>',
       '    <div class="mchart">' + bars + '</div>',
       '  </div>',
       '</div>',
@@ -1167,26 +1184,26 @@ async function syncGSheet() {
 }
 
 async function downloadExcel() {
-  if (!API.isAdmin()) {
-    showToast('관리자만 다운로드할 수 있습니다.', 'error');
-    return;
-  }
   /*
-   * 구글시트에는 개인정보를 올리지 않습니다. 대신 이 파일에는 담습니다.
-   * 내 PC 로 바로 내려받는 것이라 인터넷에 남지 않습니다.
+   * 대시보드의 「엑셀 다운로드」.
+   *
+   * 전에는 구글 드라이브에 파일을 만들어 받았는데, 받을 때마다 파일이 쌓이고
+   * 개인정보가 인터넷에 남았다. 지금은 브라우저가 직접 만들어
+   * 다운로드 폴더에 바로 넣는다 (드라이브에 아무것도 안 남는다).
    */
   const keep = confirm([
-    '정산자료 엑셀을 받습니다.',
+    '엑셀에 개인정보(강사 이메일 · 계산서 받는사람 연락처)를 넣을까요?',
     '',
-    '[확인] 이메일·연락처까지 넣어서 받기 (정산용)',
-    '[취소] 개인정보는 빼고 받기 (공유용)'
+    '[확인] 넣어서 받기 — 정산용',
+    '[취소] 빼고 받기 — 공유용'
   ].join('\n'));
   try {
-    showToast('엑셀 파일을 만드는 중입니다...', 'info');
-    await API.downloadExcel({ personal: keep ? '1' : '0' });
-    showToast('내려받았습니다.', 'success');
-  } catch (err) {
-    showToast(err.message, 'error');
+    const r = await API.downloadAll({ personal: keep ? '1' : '0' });
+    const rows = (r.sheets || []).reduce((a, s) => a + s.rows.length, 0);
+    showToast(r.filename + ' 을(를) 받았습니다. (시트 ' + r.sheets.length + '장 · '
+      + formatNumber(rows) + '줄)', 'success');
+  } catch (e) {
+    showToast(e.message, 'error');
   }
 }
 
@@ -3703,6 +3720,8 @@ function renderBulk() {
     '      <ul class="bk-rules">',
     '        <li><b>고치기</b> — 칸의 내용을 바꾸면 됩니다.</li>',
     '        <li><b>추가하기</b> — 맨 아래에 새 줄을 쓰고 <b>「번호」는 비워두세요.</b></li>',
+    '        <li><b>새 과정 넣기</b> — 과정 시트의 번호에 <b>새1</b> 처럼 아무 이름이나 적고,',
+    '            매출·매입 시트의 <b>과정번호</b>에도 똑같이 <b>새1</b> 을 적으면 한 번에 이어집니다.</li>',
     '        <li><b>지우기</b> — 그 줄을 통째로 삭제하세요.</li>',
     '        <li class="warn"><b>「번호」 칸은 절대 고치지 마세요.</b> 어느 줄인지 알아보는 표시입니다.</li>',
     '        <li class="gray"><b>회색 제목</b>의 칸(합계·부가세 등)은 적어도 무시됩니다. 서버가 다시 계산합니다.</li>',
