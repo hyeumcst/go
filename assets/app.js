@@ -323,6 +323,33 @@ function fullUsername(v) {
   return s.indexOf('@') >= 0 ? s : s + MAIL_DOMAIN;
 }
 
+/*
+ * 비밀번호 칸 — ●●●● 로 가려 보이지만 눈 버튼을 누르면 실제 글자가 보인다.
+ * 잘못 친 것을 확인할 수 있어야 하기 때문이다.
+ */
+function pwField(id, opts) {
+  opts = opts || {};
+  return '<div class="pw-field">'
+    + '<input type="password" id="' + id + '" class="form-input"'
+    + (opts.autocomplete ? ' autocomplete="' + opts.autocomplete + '"' : '')
+    + (opts.placeholder ? ' placeholder="' + esc(opts.placeholder) + '"' : '')
+    + '>'
+    + '<button type="button" class="pw-eye" title="비밀번호 보기"'
+    + ' onclick="togglePw(this)" tabindex="-1">👁</button>'
+    + '</div>';
+}
+
+/** 눈 버튼 — 가렸다 보였다 */
+function togglePw(btn) {
+  const input = btn.parentNode.querySelector('input');
+  if (!input) return;
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  btn.textContent = show ? '🙈' : '👁';
+  btn.title = show ? '비밀번호 숨기기' : '비밀번호 보기';
+  btn.classList.toggle('on', show);
+}
+
 // --- 로그인 ---
 function initLogin() {
   const root = document.getElementById('app');
@@ -347,7 +374,7 @@ function initLogin() {
           </div>
           <div class="form-group">
             <label class="form-label">비밀번호</label>
-            <input type="password" id="password" class="form-input" required autocomplete="current-password">
+            ${pwField('password', { autocomplete: 'current-password' })}
           </div>
           <button type="submit" class="btn btn-primary btn-block btn-lg" style="margin-top: 1.5rem;">로그인</button>
         </form>
@@ -508,6 +535,7 @@ function initApp() {
             item('staff', '직원 · 외부영업자')
           ])}
           ${section('설정', [
+            item('bulk', '엑셀로 한꺼번에 수정'),
             item('password', '내 비밀번호 변경'),
             item('users', '직원 계정 관리')
           ])}
@@ -718,6 +746,7 @@ function navigate(route, params = null) {
   content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
   switch (route) {
+    case 'bulk': renderBulk(); break;
     case 'password': renderPassword(); break;
     case 'dashboard': renderDashboard(); break;
     case 'analytics': renderAnalytics(); break;
@@ -3630,6 +3659,214 @@ async function downloadRoster() {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   엑셀로 한꺼번에 수정 (관리자 전용)
+
+     ① 내려받기 → ② 엑셀에서 고치기 → ③ 올리기 → ④ 확인 → ⑤ 반영
+
+   ④번이 핵심이다. 바로 반영하지 않고 「이렇게 바뀝니다」를 먼저 보여준다.
+   ═══════════════════════════════════════════════════════════ */
+
+const BULK = { preview: null, busy: false };
+
+function renderBulk() {
+  if (!API.isAdmin()) return;
+  BULK.preview = null;
+
+  document.getElementById('main-content').innerHTML = [
+    '<div class="page-header"><div>',
+    '  <h2>엑셀로 한꺼번에 수정</h2>',
+    '  <p class="subtitle">사이트의 모든 자료를 엑셀로 받아 고친 뒤 다시 올리면 반영됩니다.</p>',
+    '</div></div>',
+
+    '<div class="bulk-steps">',
+
+    /* ── 1단계 ── */
+    '  <div class="bulk-step">',
+    '    <div class="bk-no">1</div>',
+    '    <div class="bk-body">',
+    '      <h3>엑셀 내려받기</h3>',
+    '      <p>지금 자료가 모두 담긴 엑셀 파일이 <b>내 컴퓨터 다운로드 폴더</b>에 저장됩니다.</p>',
+    '      <div class="bk-act">',
+    '        <button class="btn btn-primary" id="bk-dl" onclick="bulkDownload(true)">',
+    '          <span class="icon">📥</span> 개인정보 포함해서 받기</button>',
+    '        <button class="btn btn-outline" onclick="bulkDownload(false)">개인정보 빼고 받기</button>',
+    '      </div>',
+    '      <p class="form-hint">이메일·연락처가 들어갑니다. 정산용이 아니면 「빼고 받기」를 쓰세요.</p>',
+    '    </div>',
+    '  </div>',
+
+    /* ── 2단계 ── */
+    '  <div class="bulk-step">',
+    '    <div class="bk-no">2</div>',
+    '    <div class="bk-body">',
+    '      <h3>엑셀에서 고치기</h3>',
+    '      <ul class="bk-rules">',
+    '        <li><b>고치기</b> — 칸의 내용을 바꾸면 됩니다.</li>',
+    '        <li><b>추가하기</b> — 맨 아래에 새 줄을 쓰고 <b>「번호」는 비워두세요.</b></li>',
+    '        <li><b>지우기</b> — 그 줄을 통째로 삭제하세요.</li>',
+    '        <li class="warn"><b>「번호」 칸은 절대 고치지 마세요.</b> 어느 줄인지 알아보는 표시입니다.</li>',
+    '        <li class="gray"><b>회색 제목</b>의 칸(합계·부가세 등)은 적어도 무시됩니다. 서버가 다시 계산합니다.</li>',
+    '      </ul>',
+    '    </div>',
+    '  </div>',
+
+    /* ── 3단계 ── */
+    '  <div class="bulk-step">',
+    '    <div class="bk-no">3</div>',
+    '    <div class="bk-body">',
+    '      <h3>고친 엑셀 올리기</h3>',
+    '      <p>바로 반영하지 않습니다. <b>무엇이 바뀌는지 먼저 보여드립니다.</b></p>',
+    '      <div class="bk-act">',
+    '        <input type="file" id="bk-file" accept=".xlsx" style="display:none"',
+    '               onchange="bulkUpload(this)">',
+    '        <button class="btn btn-primary" onclick="document.getElementById(\'bk-file\').click()">',
+    '          <span class="icon">📤</span> 엑셀 파일 고르기</button>',
+    '        <span id="bk-name" class="form-hint"></span>',
+    '      </div>',
+    '    </div>',
+    '  </div>',
+
+    '</div>',
+    '<div id="bk-result"></div>'
+  ].join('');
+}
+
+/** 1단계 — 내 PC 로 받는다 */
+async function bulkDownload(personal) {
+  if (BULK.busy) return;
+  BULK.busy = true;
+  const btn = document.getElementById('bk-dl');
+  const old = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '만드는 중…'; }
+
+  try {
+    const r = await API.downloadAll({ personal: personal ? '1' : '0' });
+    const rows = (r.sheets || []).reduce((a, s) => a + s.rows, 0);
+    showToast(r.filename + ' 을(를) 받았습니다. (' + r.sheets.length + '개 시트 · ' + formatNumber(rows) + '줄)', 'success');
+  } catch (e) {
+    showToast(e.message, 'error');
+  } finally {
+    BULK.busy = false;
+    if (btn) { btn.disabled = false; btn.innerHTML = old; }
+  }
+}
+
+/** 3단계 — 올려서 무엇이 바뀌는지 받아본다 */
+async function bulkUpload(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  document.getElementById('bk-name').textContent = file.name;
+
+  const box = document.getElementById('bk-result');
+  box.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  try {
+    const b64 = await fileToBase64(file);
+    const p = await API.uploadPreview(b64, file.name);
+    BULK.preview = p;
+    renderBulkPreview(p);
+  } catch (e) {
+    box.innerHTML = '<div class="an-empty">' + esc(e.message) + '</div>';
+  } finally {
+    input.value = '';                       // 같은 파일을 다시 고를 수 있게
+  }
+}
+
+/** 4단계 — 「이렇게 바뀝니다」 */
+function renderBulkPreview(p) {
+  const rows = (p.summary || []).filter(s => !s.skipped && (s.add || s.edit || s.del));
+  const nothing = rows.length === 0;
+
+  const dels = (p.deletes || []);
+  const delTotal = dels.reduce((a, d) => a + d.count, 0);
+
+  document.getElementById('bk-result').innerHTML = [
+    '<div class="bulk-preview' + (p.problems.length ? ' has-problem' : '') + '">',
+    '  <h3>이렇게 바뀝니다</h3>',
+
+    nothing
+      ? '<div class="an-empty">바뀐 내용이 없습니다.</div>'
+      : [
+        '<div class="table-container"><table class="data-table">',
+        '<thead><tr><th>시트</th><th class="th-mid">추가</th><th class="th-mid">수정</th><th class="th-mid">삭제</th></tr></thead><tbody>',
+        rows.map(s =>
+          '<tr><td style="font-weight:600">' + esc(s.name) + '</td>'
+          + '<td class="c-mid' + (s.add ? ' bk-add' : '') + '">' + (s.add || '-') + '</td>'
+          + '<td class="c-mid' + (s.edit ? ' bk-edit' : '') + '">' + (s.edit || '-') + '</td>'
+          + '<td class="c-mid' + (s.del ? ' bk-del' : '') + '">' + (s.del || '-') + '</td></tr>'
+        ).join(''),
+        '</tbody></table></div>'
+      ].join(''),
+
+    /* 지워질 것은 따로 보여준다 — 무심코 지우는 사고를 막는다 */
+    delTotal ? [
+      '<div class="bk-danger">',
+      '  <b>⚠ ' + formatNumber(delTotal) + '줄이 지워집니다.</b>',
+      '  <p class="form-hint" style="margin:.4rem 0 .6rem">',
+      '  엑셀에서 줄을 지우셨다면 맞습니다. 아니라면 <b>취소</b>하고 엑셀을 다시 받아주세요.</p>',
+      dels.map(d =>
+        '<div class="bk-dl-row"><b>' + esc(d.key) + '</b> ' + d.count + '줄 — '
+        + esc(d.sample.join(' · ')) + (d.count > d.sample.length ? ' …' : '') + '</div>'
+      ).join(''),
+      '</div>'
+    ].join('') : '',
+
+    /* 고칠 곳 */
+    p.problems.length ? [
+      '<div class="bk-danger">',
+      '  <b>⚠ 고쳐야 할 곳이 ' + p.problems.length + '개 있습니다.</b>',
+      '  <p class="form-hint" style="margin:.4rem 0 .6rem">이대로는 반영할 수 없습니다.</p>',
+      p.problems.slice(0, 12).map(x => '<div class="bk-dl-row">' + esc(x) + '</div>').join(''),
+      p.problems.length > 12 ? '<div class="bk-dl-row">… 외 ' + (p.problems.length - 12) + '개</div>' : '',
+      '</div>'
+    ].join('') : '',
+
+    '  <div class="bk-act" style="margin-top:1.2rem">',
+    '    <button class="btn btn-ghost" onclick="renderBulk()">취소</button>',
+    (nothing || p.problems.length)
+      ? ''
+      : '<button class="btn btn-primary" id="bk-go" onclick="bulkApply()">반영하기</button>',
+    '  </div>',
+    '</div>'
+  ].join('');
+}
+
+/** 5단계 — 반영 */
+async function bulkApply() {
+  const p = BULK.preview;
+  if (!p) return;
+
+  const dels = (p.deletes || []).reduce((a, d) => a + d.count, 0);
+  if (dels && !confirm(dels + '줄이 지워집니다.\n\n정말 반영할까요?')) return;
+
+  const btn = document.getElementById('bk-go');
+  if (btn) { btn.disabled = true; btn.innerHTML = '반영하는 중…'; }
+
+  try {
+    const r = await API.uploadApply(p.ticket);
+    document.getElementById('bk-result').innerHTML = [
+      '<div class="bulk-preview">',
+      '  <h3>반영했습니다</h3>',
+      '  <div class="table-container"><table class="data-table"><tbody>',
+      '    <tr><td>추가</td><td class="amount-cell">' + formatNumber(r.added) + '줄</td></tr>',
+      '    <tr><td>수정</td><td class="amount-cell">' + formatNumber(r.edited) + '줄</td></tr>',
+      '    <tr><td>삭제</td><td class="amount-cell">' + formatNumber(r.deleted) + '줄</td></tr>',
+      '    <tr><td>금액 다시 계산한 과정</td><td class="amount-cell">' + formatNumber(r.recalculated) + '개</td></tr>',
+      '  </tbody></table></div>',
+      '  <div class="bk-act" style="margin-top:1rem">',
+      '    <button class="btn btn-primary" onclick="navigate(\'dashboard\')">대시보드 보기</button>',
+      '    <button class="btn btn-ghost" onclick="renderBulk()">다시 수정하기</button>',
+      '  </div>',
+      '</div>'
+    ].join('');
+    showToast('반영했습니다.', 'success');
+  } catch (e) {
+    showToast(e.message, 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = '반영하기'; }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
    비밀번호 변경 — 관리자·직원 모두 자기 비밀번호를 바꿀 수 있다.
    (다른 사람의 비밀번호를 새로 정해주는 것은 [로그인 계정] 화면에서 관리자가 한다)
    ═══════════════════════════════════════════════════════════ */
@@ -3643,16 +3880,16 @@ function renderPassword() {
     '<div class="card" style="max-width:26rem">',
     '  <div class="form-group">',
     '    <label class="form-label">지금 비밀번호</label>',
-    '    <input type="password" id="pw-old" class="form-input" autocomplete="current-password">',
+    '    ' + pwField('pw-old', { autocomplete: 'current-password' }),
     '  </div>',
     '  <div class="form-group">',
     '    <label class="form-label">새 비밀번호</label>',
-    '    <input type="password" id="pw-new" class="form-input" autocomplete="new-password">',
+    '    ' + pwField('pw-new', { autocomplete: 'new-password' }),
     '    <p class="form-hint">4자 이상. 길게 하실수록 안전합니다.</p>',
     '  </div>',
     '  <div class="form-group">',
     '    <label class="form-label">새 비밀번호 확인</label>',
-    '    <input type="password" id="pw-new2" class="form-input" autocomplete="new-password">',
+    '    ' + pwField('pw-new2', { autocomplete: 'new-password' }),
     '  </div>',
     '  <button class="btn btn-primary btn-block" onclick="submitPassword()">비밀번호 바꾸기</button>',
     '</div>'
@@ -3772,7 +4009,7 @@ function userForm(id) {
     + esc(u.name || '') + '"></div>',
     (isNew
       ? '<div class="form-group"><label class="form-label form-required">비밀번호</label>'
-        + '<input type="password" id="u-pw" class="form-input" autocomplete="new-password">'
+        + pwField('u-pw', { autocomplete: 'new-password' })
         + '<p class="form-hint">4자 이상. 정하신 뒤 본인에게 알려주세요.</p></div>'
       : ''),
     '    <div class="rline">',
@@ -3847,7 +4084,7 @@ function userResetPw(id) {
     esc(u.name || '') + ' (' + esc(u.username || '') + ') 의 비밀번호를 새로 정합니다.',
     '    <br>지금 비밀번호는 몰라도 됩니다.</span></div>',
     '    <div class="form-group"><label class="form-label form-required">새 비밀번호</label>',
-    '      <input type="password" id="u-newpw" class="form-input" autocomplete="new-password">',
+    '      ' + pwField('u-newpw', { autocomplete: 'new-password' }),
     '      <p class="form-hint">4자 이상. 정하신 뒤 본인에게 알려주세요.</p></div>',
     '  </div>',
     '  <div class="modal-footer">',

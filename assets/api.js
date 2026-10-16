@@ -207,5 +207,62 @@ const API = {
     return r;
   },
   downloadInstructorRoster() { return this._settle('/export/instructors', '강사명단'); },
-  downloadExcel(params = {}) { return this._settle('/export/excel' + this.qs(params), '정산자료'); }
+  downloadExcel(params = {}) { return this._settle('/export/excel' + this.qs(params), '정산자료'); },
+
+  /* ───── 엑셀로 한꺼번에 고치기 ───── */
+
+  /**
+   * 사이트의 모든 자료를 엑셀 파일로 내 PC 에 받는다.
+   * 구글 드라이브를 거치지 않는다 (서버가 만들고 바로 지운다).
+   */
+  async downloadAll(params = {}) {
+    const r = await this.get('/bulk/excel' + this.qs(params));
+    saveFile(r.base64, r.filename);
+    return r;
+  },
+
+  /** 고친 엑셀을 올려 「무엇이 바뀌는지」 먼저 받아본다 (저장하지 않음) */
+  uploadPreview(base64, filename) {
+    return this.post('/bulk/preview', { base64: base64, filename: filename });
+  },
+
+  /** 미리보기에서 본 그대로 반영한다 */
+  uploadApply(ticket, force) {
+    return this.post('/bulk/apply', { ticket: ticket, force: !!force });
+  }
 };
+
+/**
+ * 서버가 보내준 파일(글자로 담긴 것)을 내 PC 에 저장한다.
+ * 다운로드 폴더에 바로 떨어진다.
+ */
+function saveFile(base64, filename) {
+  const bin = atob(base64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+
+  const blob = new Blob([buf], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/** 고른 파일을 글자로 바꾼다 (서버로 보내기 위해) */
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const s = String(fr.result);
+      resolve(s.slice(s.indexOf(',') + 1));      // "data:...;base64," 를 떼어낸다
+    };
+    fr.onerror = () => reject(new Error('파일을 읽지 못했습니다.'));
+    fr.readAsDataURL(file);
+  });
+}
