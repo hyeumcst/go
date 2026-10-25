@@ -261,10 +261,15 @@ function makeExcel(sheets, filename) {
 
     const edge = { style: 'thin', color: { rgb: LINE } };
 
+    // 「과정」 줄을 알아보려면 구분 칸이 몇 번째인지 알아야 한다.
+    // 칸 순서가 바뀔 수 있으니 이름으로 찾는다.
+    const kindAt = s.header.indexOf('구분');
+
     for (let r = 0; r < grid.length; r++) {
       const head = r === 0;
-      // 첫 칸이 「과정」인 줄 (합친 과정 시트에서만 나온다)
-      const proj = !head && String(grid[r][0]).trim() === '과정';
+      // 구분이 「과정」인 줄 (합친 과정 시트에서만 나온다)
+      const proj = !head && kindAt >= 0
+        && String(grid[r][kindAt] || '').trim() === '과정';
 
       for (let c = 0; c < s.header.length; c++) {
         const ref = XLSX.utils.encode_cell({ r: r, c: c });
