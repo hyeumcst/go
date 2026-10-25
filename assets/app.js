@@ -941,9 +941,12 @@ async function renderDashboard() {
 
       // ── 경고 ──
       (data.alerts.missingExpense > 0
-        ? '<div class="warn-box" style="margin-bottom:1.25rem"><span class="ico">' + icon('alert', 18) + '</span>'
+        ? '<div class="warn-box click" style="margin-bottom:1.25rem"'
+          + ' onclick="showMissingExpense()" title="눌러서 해당 과정 보기">'
+          + '<span class="ico">' + icon('alert', 18) + '</span>'
           + '<span class="txt">매출은 있는데 <b>매입이 하나도 없는 과정이 ' + data.alerts.missingExpense + '건</b> 있습니다. '
-          + '지급 누락이 아닌지 확인해주세요.</span></div>'
+          + '지급 누락이 아닌지 확인해주세요.</span>'
+          + '<span class="go">해당 과정 보기 →</span></div>'
         : ''),
 
       // ── 월별 추이 ──
@@ -1212,8 +1215,35 @@ async function downloadExcel() {
 const LIST = {
   company: '',
   q: '', month: '', manager: '', type: '', sort: 'recent',
+  // 매입이 하나도 없는 과정만 보기 (대시보드 경고에서 넘어올 때)
+  missing_expense: '',
   months: [], managers: []
 };
+
+/**
+ * 대시보드의 「매입이 없는 과정」 경고를 눌렀을 때.
+ * 과정 목록으로 가서 그 과정들만 보여준다.
+ */
+function showMissingExpense() {
+  LIST.missing_expense = '1';
+  // 다른 조건이 걸려 있으면 안 보일 수 있으니 함께 푼다
+  LIST.q = '';
+  LIST.month = '';
+  LIST.manager = '';
+  LIST.type = '';
+
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const el = document.querySelector('.nav-item[data-route="projects"]');
+  if (el) el.classList.add('active');
+
+  navigate('projects');
+}
+
+/** 그 거르개를 푼다 */
+function clearMissingExpense() {
+  LIST.missing_expense = '';
+  renderProjectList();
+}
 
 async function renderProjectList() {
   const content = document.getElementById('main-content');
@@ -1231,7 +1261,8 @@ async function renderProjectList() {
   try {
     data = await API.getProjects({
       q: LIST.q, month: LIST.month, manager: LIST.manager,
-      type: LIST.type, sort: LIST.sort, company: LIST.company
+      type: LIST.type, sort: LIST.sort, company: LIST.company,
+      missing_expense: LIST.missing_expense
     });
   } catch (e) { showToast(e.message, 'error'); return; }
 
@@ -1246,6 +1277,17 @@ async function renderProjectList() {
     '    <div class="subtitle">매출·매입이 등록된 과정을 조건별로 봅니다.</div></div>',
     '  <button class="btn btn-primary" onclick="navigate(\'project-form\')"><span class="icon">➕</span> 신규 과정 등록</button>',
     '</div>',
+
+    /*
+     * 「매입이 없는 과정만」 보고 있을 때 그 사실을 알려준다.
+     * 말없이 걸러 두면 과정이 몇 개만 보이는 이유를 알 수 없다.
+     */
+    (LIST.missing_expense
+      ? '<div class="warn-box click" style="margin-bottom:1rem" onclick="clearMissingExpense()">'
+        + '<span class="ico">' + icon('alert', 18) + '</span>'
+        + '<span class="txt"><b>매입이 하나도 없는 과정</b>만 보고 있습니다.</span>'
+        + '<span class="go">✕ 전체 보기</span></div>'
+      : ''),
 
     // ── 필터 바 ──
     '<div class="list-filter">',
