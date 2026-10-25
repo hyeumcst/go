@@ -3843,6 +3843,18 @@ async function bulkUpload(input) {
   }
 }
 
+/*
+ * 지워질 줄을 보여줄 때 쓰는 이름.
+ * 서버는 표 이름(project_sales …)을 주는데, 그대로 보이면 무엇이
+ * 지워지는지 알 수 없다. 사고를 막는 화면이라 한글로 보여준다.
+ */
+const BULK_LABEL = {
+  projects: '과정', project_sales: '매출', project_expenses: '매입',
+  project_invoices: '계산서', clients: '고객사', contacts: '고객사 담당자',
+  instructors: '강사', partners: '협력사', corp_cards: '법인카드',
+  staff: '직원·외부영업', overheads: '회사 경비', users: '사용자'
+};
+
 /** 4단계 — 「이렇게 바뀝니다」 */
 function renderBulkPreview(p) {
   const rows = (p.summary || []).filter(s => !s.skipped && (s.add || s.edit || s.del));
@@ -3876,7 +3888,7 @@ function renderBulkPreview(p) {
       '  <p class="form-hint" style="margin:.4rem 0 .6rem">',
       '  엑셀에서 줄을 지우셨다면 맞습니다. 아니라면 <b>취소</b>하고 엑셀을 다시 받아주세요.</p>',
       dels.map(d =>
-        '<div class="bk-dl-row"><b>' + esc(d.key) + '</b> ' + d.count + '줄 — '
+        '<div class="bk-dl-row"><b>' + esc(BULK_LABEL[d.key] || d.key) + '</b> ' + d.count + '줄 — '
         + esc(d.sample.join(' · ')) + (d.count > d.sample.length ? ' …' : '') + '</div>'
       ).join(''),
       '</div>'
