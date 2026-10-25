@@ -2504,3 +2504,23 @@ tr:hover .pv-eye, .instructor-card:hover .pv-eye { opacity: 0.85; }
    아직 안 본 건과 섞이면 어디까지 봤는지 알 수 없다. */
 .btn.chk-on { color: var(--success); border-color: var(--success); opacity: 0.9; }
 .btn.chk-on:hover { opacity: 1; }
+
+/* ── 고객사명 아래 붙박이 안내 ──
+   전에는 자동완성 목록 안에서만 「신규 등록」이 보였다. 목록은 딴 데를
+   누르면 닫혀서, 등록 안 된 고객사인데도 그 사실이 화면에서 사라졌다.
+   그래서 목록 밖으로 꺼내 입력칸 아래에 늘 둔다. */
+.client-hint { margin-top: 0.35rem; font-size: 0.78rem; line-height: 1.5; }
+.client-hint:empty { display: none; }
+.client-hint .ic { font-weight: 800; margin-right: 0.15rem; }
+.client-hint.checking { color: var(--text-muted); }
+.client-hint.known { color: var(--success); }
+.client-hint.isnew {
+  /* 밝게·어둡게 모두 따라오도록 테마 색만 쓴다 (고정색을 넣으면 한쪽에서 어긋난다) */
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.6rem;
+  /* flex 로 두면 「 ○○ 」 같은 토막이 저마다 한 칸을 차지해 줄이 어색하게 꺾인다 */
+  display: block;
+}
+.client-hint.isnew .btn { margin-left: 0.4rem; vertical-align: baseline; }

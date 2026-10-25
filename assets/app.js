@@ -1550,6 +1550,7 @@ async function renderProjectForm(projectId = null) {
               <input type="text" id="p-client-name" class="form-input" placeholder="첫 글자만 입력하면 목록이 나옵니다" value="${p.client_name || ''}" autocomplete="off">
               <input type="hidden" id="p-client-id" value="${p.client_id || ''}">
               <div id="autocomplete-clients" class="autocomplete-list"></div>
+              <div id="p-client-hint" class="client-hint"></div>
             </div>
             <div class="form-group f6">
               <label class="form-label">고객사 담당자 <span style="font-weight:400; color:var(--text-muted)">(이름이 없으면 ＋신규로 등록)</span></label>
@@ -3411,6 +3412,9 @@ function openContactModal(contactId) {
 }
 
 function setupAutocomplete() {
+  // 열자마자 지금 상태를 보여준다 (고치러 들어온 과정은 「이미 등록됨」)
+  renderClientHint();
+
   // 고객사 검색
   const clInput = document.getElementById('p-client-name');
   const clList = document.getElementById('autocomplete-clients');
@@ -3418,11 +3422,29 @@ function setupAutocomplete() {
     clInput.addEventListener('input', (e) => {
       document.getElementById('p-client-id').value = ''; // 타이핑하면 ID 리셋
       setContactOptions([]);
+      renderClientHint('checking');      // 아직 모르는 동안은 「신규」라고 단정하지 않는다
       clearTimeout(State.autocompleteTimer);
       State.autocompleteTimer = setTimeout(async () => {
         const q = e.target.value.trim();
-        if(q.length < 1) { clList.classList.remove('show'); return; }
-        const res = await API.searchClients(q);
+        if(q.length < 1) { clList.classList.remove('show'); renderClientHint(); return; }
+
+        let res;
+        try { res = await API.searchClients(q); }
+        catch (err) { renderClientHint(); return; }
+
+        /*
+         * 이름을 끝까지 똑같이 적었으면 목록에서 고르지 않아도 그 고객사로 본다.
+         * 그러지 않으면 이미 있는 고객사인데도 「신규」라고 나와 헷갈린다.
+         */
+        const exact = (res.clients || []).filter(function (c) {
+          return sameClientName(c.name, q);
+        })[0];
+        if (exact) {
+          document.getElementById('p-client-id').value = exact.id;
+          loadContacts(exact.id);
+        }
+        renderClientHint();
+
         renderAutoList(clList, res.clients, q, async (item) => {
           clList.classList.remove('show');
 
@@ -3443,11 +3465,76 @@ function setupAutocomplete() {
           clInput.value = item.name;
           document.getElementById('p-client-id').value = id;
           loadContacts(id);
+          renderClientHint();
         });
       }, 300);
     });
   }
 
+}
+
+/** 고객사 이름이 같은 것인지 — 앞뒤 공백과 대소문자는 눈감아 준다 */
+function sameClientName(a, b) {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
+
+/*
+ * 고객사명 아래 붙박이 안내.
+ *
+ * 전에는 입력할 때 뜨는 목록 안에서만 「(신규 등록)」이 보였다.
+ * 그 목록은 딴 데를 한 번 누르면 닫히고, 다시 보려면 글자를 지웠다
+ * 다시 써야 했다. 그래서 등록되지 않은 고객사인데도 그 사실이
+ * 화면에서 사라져 버렸다. (대표님 지시 2026-10-26)
+ *
+ * 이제 안내를 목록 밖으로 꺼내 입력칸 아래에 늘 둔다.
+ * 등록될 때까지 사라지지 않는다. 관리자·직원 모두 같다.
+ *
+ * @param state 'checking' 이면 「확인 중」. 비워 두면 지금 상태로 판단한다.
+ */
+function renderClientHint(state) {
+  const box = document.getElementById('p-client-hint');
+  if (!box) return;
+
+  const name = ((document.getElementById('p-client-name') || {}).value || '').trim();
+  const id = (document.getElementById('p-client-id') || {}).value || '';
+
+  if (!name) { box.className = 'client-hint'; box.innerHTML = ''; return; }
+
+  if (state === 'checking' && !id) {
+    box.className = 'client-hint checking';
+    box.innerHTML = '찾아보는 중…';
+    return;
+  }
+
+  if (id) {
+    box.className = 'client-hint known';
+    box.innerHTML = '<span class="ic">✓</span> 이미 등록된 고객사입니다.';
+    return;
+  }
+
+  box.className = 'client-hint isnew';
+  box.innerHTML = '<span class="ic">＋</span> 「<b>' + esc(name) + '</b>」는 아직 등록되지 않은 고객사입니다. '
+    + '과정을 저장하면 함께 등록됩니다.'
+    + ' <button type="button" class="btn btn-outline btn-sm" onclick="createClientNow()">지금 등록</button>';
+}
+
+/**
+ * 적어 넣은 고객사를 그 자리에서 등록한다.
+ * 담당자를 고르려면 고객사 번호가 있어야 해서, 저장까지 기다리지 않아도 되게 둔다.
+ */
+async function createClientNow() {
+  const el = document.getElementById('p-client-name');
+  const name = ((el || {}).value || '').trim();
+  if (!name) return;
+  try {
+    const r = await API.createClient({ name: name });
+    document.getElementById('p-client-id').value = r.client.id;
+    showToast('새 고객사 「' + name + '」를 등록했습니다.', 'success');
+    loadContacts(r.client.id);
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+  renderClientHint();
 }
 
 function renderAutoList(container, items, query, onClick, showSub = false) {
