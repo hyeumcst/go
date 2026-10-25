@@ -552,7 +552,7 @@ body { font-family: 'Pretendard', sans-serif; background: var(--bg-primary); col
 .main-content { padding: 1.5rem 2rem 3rem; }
 
 /* ═══════ 2) 사이드바 로고 ═══════ */
-.sidebar-logo { display: block; width: 100%; max-width: 168px; height: auto; margin-bottom: 0.6rem; }
+.sidebar-logo { display: block; width: 100%; max-width: 118px; height: auto; margin-bottom: 0.6rem; }
 .sidebar-logo.dark { display: none; }
 :root[data-theme="dark"] .sidebar-logo.light { display: none; }
 :root[data-theme="dark"] .sidebar-logo.dark { display: block; }
@@ -697,7 +697,7 @@ html { font-size: 16px; }
 }
 
 /* ═══════ 사이드바 브랜드 ═══════ */
-.sidebar-logo { max-width: 176px; margin-bottom: 0.45rem; }
+.sidebar-logo { max-width: 123px; margin-bottom: 0.45rem; }
 .brand-sub {
   font-size: 1.1rem; font-weight: 800; letter-spacing: -0.01em;
   background: var(--logo-grad);
@@ -2413,7 +2413,7 @@ code {
 
 /* 과정 등록 — 메뉴에서 가장 먼저 눈에 들어오게 */
 .nav-cta {
-  display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+  display: flex; align-items: center; justify-content: center;
   width: 100%;
   margin: 0 0 1.1rem;
   padding: 0.8rem 1rem;
@@ -2428,7 +2428,6 @@ code {
 }
 .nav-cta:hover { filter: brightness(1.07); box-shadow: var(--shadow-md); }
 .nav-cta:active { transform: scale(0.985); }
-.nav-cta .plus { font-size: 1.05rem; font-weight: 800; line-height: 1; }
 
 /* ══════════════════════════════════════════════
    메뉴 — 지금 보고 있는 항목 표시

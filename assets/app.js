@@ -515,7 +515,7 @@ function initApp() {
         <div class="sidebar-divider"></div>
         <nav class="sidebar-nav">
           <button class="nav-cta" data-route="project-form">
-            <span class="plus">＋</span><span class="t">과정 등록</span>
+            과정 등록
           </button>
 
           ${section('메인', [
@@ -542,8 +542,8 @@ function initApp() {
         </nav>
         <div class="sidebar-footer">
           <div class="theme-toggle" id="theme-toggle">
-            <button data-theme-set="light">☀️ 밝게</button>
-            <button data-theme-set="dark">🌙 어둡게</button>
+            <button data-theme-set="light">밝게</button>
+            <button data-theme-set="dark">어둡게</button>
           </div>
           <div class="user-info">
             <div class="user-avatar">${user.name.charAt(0)}</div>
