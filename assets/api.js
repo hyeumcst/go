@@ -242,32 +242,74 @@ const API = {
  * 다운로드 폴더에 바로 떨어진다.
  */
 function makeExcel(sheets, filename) {
+  /*
+   * 색 (대표님이 정하신 것)
+   *   머리글 1행 — 연두  #D8E4BC
+   *   「과정」 줄  — 베이지 #DDD9C4
+   *
+   * 과정 줄에 색이 있어야 어디서 다음 과정이 시작되는지 한눈에 보인다.
+   */
+  const HEAD_BG = 'D8E4BC';
+  const PROJ_BG = 'DDD9C4';
+  const LINE = 'BFBFBF';
+
   const wb = XLSX.utils.book_new();
 
   sheets.forEach(function (s) {
     const grid = [s.header].concat(s.rows);
     const ws = XLSX.utils.aoa_to_sheet(grid);
 
-    /* 돈 칸은 천 단위마다 쉼표를 찍는다 (1,250,000) */
-    (s.money || []).forEach(function (isMoney, col) {
-      if (!isMoney) return;
-      for (let r = 1; r <= s.rows.length; r++) {
-        const ref = XLSX.utils.encode_cell({ r: r, c: col });
-        const cell = ws[ref];
-        if (cell && cell.t === 'n') cell.z = '#,##0';
+    const edge = { style: 'thin', color: { rgb: LINE } };
+
+    for (let r = 0; r < grid.length; r++) {
+      const head = r === 0;
+      // 첫 칸이 「과정」인 줄 (합친 과정 시트에서만 나온다)
+      const proj = !head && String(grid[r][0]).trim() === '과정';
+
+      for (let c = 0; c < s.header.length; c++) {
+        const ref = XLSX.utils.encode_cell({ r: r, c: c });
+        if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+
+        const st = {};
+
+        if (head) {
+          st.fill = { patternType: 'solid', fgColor: { rgb: HEAD_BG } };
+          st.font = { bold: true, sz: 10 };
+          st.alignment = { vertical: 'center', horizontal: 'center', wrapText: true };
+          st.border = { top: edge, bottom: edge, left: edge, right: edge };
+        } else if (proj) {
+          st.fill = { patternType: 'solid', fgColor: { rgb: PROJ_BG } };
+          st.font = { bold: true, sz: 10 };
+          st.alignment = { vertical: 'center' };
+          st.border = { top: edge, bottom: edge };
+        } else {
+          st.font = { sz: 10 };
+          st.alignment = { vertical: 'center' };
+        }
+
+        // 돈 칸은 천 단위마다 쉼표
+        if ((s.money || [])[c] && ws[ref].t === 'n') st.numFmt = '#,##0';
+
+        ws[ref].s = st;
       }
-    });
+    }
 
     // 칸 너비를 글자 수에 맞춰 잡아준다
     ws['!cols'] = s.header.map(function (h, i) {
       let w = String(h).length + 2;
-      for (let r = 0; r < Math.min(s.rows.length, 200); r++) {
+      for (let r = 0; r < Math.min(s.rows.length, 300); r++) {
         const v = s.rows[r][i];
         if (v !== null && v !== undefined) w = Math.max(w, String(v).length + 2);
       }
-      return { wch: Math.min(Math.max(w, 6), 40) };
+      return { wch: Math.min(Math.max(w, 6), 34) };
     });
-    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+    /*
+     * 틀 고정(1행 얼리기)은 이 라이브러리가 파일에 담지 못한다.
+     * 대신 자동 필터를 걸어 둔다 — 머리글을 눌러 거르거나 정렬할 수 있다.
+     * (틀 고정이 필요하면 엑셀에서 [보기 → 틀 고정 → 첫 행 고정])
+     */
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range(
+      { s: { r: 0, c: 0 }, e: { r: Math.max(grid.length - 1, 0), c: s.header.length - 1 } }) };
 
     XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
   });
