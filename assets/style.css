@@ -2524,3 +2524,17 @@ tr:hover .pv-eye, .instructor-card:hover .pv-eye { opacity: 0.85; }
   display: block;
 }
 .client-hint.isnew .btn { margin-left: 0.4rem; vertical-align: baseline; }
+
+/* ── 계산서 항목 — 단가를 별도로 볼지 포함으로 볼지 ── */
+.ii-modes { display: inline-flex; align-items: center; gap: 2px; margin-left: 0.3rem; }
+.ii-modes i { font-style: normal; font-size: 0.72rem; color: var(--text-muted); margin-right: 0.3rem; }
+.ii-mode {
+  padding: 0.22rem 0.55rem; border: 1px solid var(--border); background: var(--bg-secondary);
+  color: var(--text-muted); font-family: inherit; font-size: 0.74rem; font-weight: 600;
+  cursor: pointer; border-radius: var(--radius-sm);
+}
+.ii-mode + .ii-mode { margin-left: -1px; }
+.ii-mode:hover { color: var(--text-primary); }
+.ii-mode.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* 표 머리글의 (별도)·(포함) 꼬리표 */
+.ii-table th em { font-style: normal; font-weight: 600; color: var(--accent); font-size: 0.72rem; }

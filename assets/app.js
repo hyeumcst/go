@@ -5800,13 +5800,63 @@ function newInvItem(seed) {
   }, seed || {});
 }
 
-/** 품목 한 줄의 공급가액·세액 — 직접 넣었으면 그대로 둔다 */
+/**
+ * 적어 넣은 단가를 「부가세 별도」로 볼지 「포함」으로 볼지.
+ *
+ *   별도 — 단가가 공급가액이다.        1,000,000 → 공급가 1,000,000 + 세액 100,000
+ *   포함 — 단가에 부가세가 들어 있다.  1,100,000 → 공급가 1,000,000 + 세액 100,000
+ *
+ * 계산서 한 장마다 고를 수 있다. 적지 않았으면 「별도」 (지금까지와 같다).
+ *
+ * 기준은 「줄마다」 적어 둔다(vat_incl). 계산서 쪽에 새 칸을 만들지 않아도
+ * 항목이 통째로 저장되기 때문에, 다시 열어도 고른 기준이 그대로 남는다.
+ */
+function invItemMode(it) {
+  return invItems(it).some(function (r) { return r.vat_incl; }) ? '포함' : '별도';
+}
+
+/** 품목 줄의 기준을 바꾼다 — 자동계산하던 줄만 다시 낸다 */
+function setInvItemMode(id, mode) {
+  const it = State.invoices.find(function (x) { return x._id === id; });
+  if (!it) return;
+  const incl = (mode === '포함');
+  invItems(it).forEach(function (r) { r.vat_incl = incl; });
+  syncInvAmount(it);
+  renderInvoices();
+}
+
+/**
+ * 품목 한 줄의 공급가액·세액.
+ * 공급가액이나 세액을 손으로 고친 줄은 그 값을 그대로 둔다.
+ *
+ * @param mode  계산서의 부가세 기준 (면세면 세액이 0)
+ */
 function invItemCalc(r, mode) {
   const q = parseFloat(r.qty) || 0;
   const p = parseNumber(r.price) || 0;
+  const free = (mode === '면세');
+  const incl = (!free && !!r.vat_incl);
+  const auto = (!r.is_manual && q && p);   // 단가·수량으로 자동계산하는 줄인가
+
   let supply = parseNumber(r.supply) || 0;
-  if (!r.is_manual && q && p) supply = Math.round(q * p);
-  const vat = mode === '면세' ? 0 : (r.vat_manual ? (parseNumber(r.vat) || 0) : Math.round(supply / 10));
+  if (auto) {
+    const raw = Math.round(q * p);
+    // 포함이면 단가 안에 든 부가세를 걷어내 공급가액을 낸다
+    supply = incl ? Math.round(raw / 1.1) : raw;
+  }
+
+  let vat;
+  if (free) {
+    vat = 0;
+  } else if (r.vat_manual) {
+    vat = parseNumber(r.vat) || 0;
+  } else if (auto && incl) {
+    // 반올림 때문에 공급가액 ÷ 10 과 1원쯤 어긋날 수 있다. 합계가 맞는 쪽을 쓴다.
+    vat = Math.round(q * p) - supply;
+  } else {
+    vat = Math.round(supply / 10);
+  }
+
   return { supply: supply, vat: vat, total: supply + vat };
 }
 
@@ -5823,8 +5873,27 @@ function addInvItem(id) {
   const it = State.invoices.find(function (x) { return x._id === id; });
   if (!it) return;
   if (invItems(it).length >= 16) return showToast('항목은 16줄까지입니다.', 'warning');
-  it.items.push(newInvItem());
+  // 새 줄도 지금 고른 기준을 따라간다
+  it.items.push(newInvItem({ vat_incl: invItemMode(it) === '포함' }));
   renderInvoices();
+}
+
+/**
+ * 항목을 모두 지우고 빈 줄 하나로 되돌린다.
+ * 한 줄씩 지우려면 여러 번 눌러야 해서, 다시 쓰려면 번거로웠다.
+ */
+function resetInvItems(id) {
+  const it = State.invoices.find(function (x) { return x._id === id; });
+  if (!it) return;
+  const written = invItems(it).filter(function (r) {
+    return r.name || parseNumber(r.price) || parseNumber(r.supply);
+  });
+  if (written.length && !confirm('적어 넣은 항목 ' + written.length + '줄을 모두 지우고\n처음부터 다시 적을까요?')) return;
+  const incl = invItemMode(it) === '포함';   // 고른 기준은 그대로 둔다
+  it.items = [newInvItem({ vat_incl: incl })];
+  syncInvAmount(it);
+  renderInvoices();
+  showToast('항목을 비웠습니다.', 'success');
 }
 
 function removeInvItem(id, i) {
@@ -5922,6 +5991,7 @@ function fillInvItems(id) {
   const raw = rows.reduce(function (a, x) { return a + saleAmount(x); }, 0);
   const ratio = raw ? want.supply / raw : 0;   // 절사가 있으면 그만큼 줄여 담는다
   const mode = invMode(it);
+  const incl = invItemMode(it) === '포함';     // 고른 기준을 그대로 이어간다
 
   it.items = rows.slice(0, 16).map(function (x) {
     const supply = Math.round(saleAmount(x) * ratio);
@@ -5931,7 +6001,7 @@ function fillInvItems(id) {
       price: x.unit_price || '',
       supply: supply,
       vat: mode === '면세' ? 0 : Math.round(supply / 10),
-      is_manual: true, vat_manual: true,
+      is_manual: true, vat_manual: true, vat_incl: incl,
       note: x.note || ''
     });
   });
@@ -6076,15 +6146,25 @@ function renderInvoices() {
     /* ③ 항목(품목) */
     const items = invItems(it);
     out.push('<div class="inv-items">');
+    const imode = invItemMode(it);
+    const modeBtn = function (m) {
+      return '<button type="button" class="ii-mode' + (imode === m ? ' on' : '') + '"'
+        + ' onclick="setInvItemMode(\'' + id + '\', \'' + m + '\')">' + m + '</button>';
+    };
     out.push('<div class="ii-head">'
       + '<span class="lb">항목(품목)</span>'
+      // 단가를 어떻게 볼지 — 고르면 공급가액·세액이 그 자리에서 다시 계산된다
+      + '<span class="ii-modes" title="적어 넣은 단가를 부가세 별도로 볼지, 부가세가 들어 있는 금액으로 볼지">'
+      +   '<i>단가 기준</i>' + modeBtn('별도') + modeBtn('포함')
+      + '</span>'
       + '<button type="button" class="btn btn-outline btn-sm" onclick="addInvItem(\'' + id + '\')">＋ 항목 추가</button>'
       + '<button type="button" class="btn btn-ghost btn-sm" onclick="fillInvItems(\'' + id + '\')">매출에서 가져오기</button>'
+      + '<button type="button" class="btn btn-ghost btn-sm" onclick="resetInvItems(\'' + id + '\')">↺ 초기화</button>'
       + '</div>');
 
     {
       out.push('<table class="ii-table"><thead><tr>'
-        + '<th>항목</th><th>수량</th><th>단가</th>'
+        + '<th>항목</th><th>수량</th><th>단가 <em>(' + imode + ')</em></th>'
         + '<th>공급가액</th><th>세액</th><th>합계</th><th>비고</th><th></th>'
         + '</tr></thead><tbody>');
       items.forEach(function (r, ri) {
