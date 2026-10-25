@@ -1436,14 +1436,21 @@ code {
 }
 .rank-row .nm.on { color: var(--accent); }
 .rank-row .ct { font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; }
+/*
+ * 숫자 칸은 너비를 똑같이 잡고 오른쪽으로 붙인다.
+ * 줄마다 따로 칸을 잡기 때문에, 너비를 정해두지 않으면
+ * 금액 자릿수가 줄마다 어긋나 보인다.
+ */
 .rank-row .vl {
   font-weight: 700; color: var(--accent);
   font-variant-numeric: tabular-nums; white-space: nowrap;
+  min-width: 6.9rem; text-align: right;
 }
 .rank-row .vl.unpaid { color: var(--danger); }
 .rank-row .pf {
   font-weight: 700; color: var(--pl-accent);
-  font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 72px; text-align: right;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  min-width: 6.9rem; text-align: right;
 }
 
 /* ── 가로 막대 ── */
