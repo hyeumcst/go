@@ -484,7 +484,6 @@ function afterProjectRoute() {
 function initApp() {
   const user = API.getUser();
   const root = document.getElementById('app');
-  const admin = user && user.role === 'admin';
 
   // 담당자·영업 명단을 미리 받아 둔다 (선택칸을 채우기 위해)
   loadStaffNames();
@@ -510,7 +509,6 @@ function initApp() {
           <img alt="혜움컨설팅" class="sidebar-logo light">
           <img alt="혜움컨설팅" class="sidebar-logo dark">
           <p class="brand-sub">Finance Management</p>
-          <span class="side-badge${admin ? '' : ' staff'}">${admin ? '관리자' : '직원'}</span>
         </div>
         <div class="sidebar-divider"></div>
         <nav class="sidebar-nav">
@@ -549,7 +547,6 @@ function initApp() {
             <div class="user-avatar">${user.name.charAt(0)}</div>
             <div class="user-meta">
               <div class="user-name">${user.name}</div>
-              <div class="user-role">${user.role === 'admin' ? '관리자' : '일반 직원'}</div>
             </div>
           </div>
           <button class="btn-logout" id="btn-logout"><span class="icon">🚪</span> 로그아웃</button>
@@ -855,7 +852,15 @@ async function renderDashboard() {
       '<div class="page-header">',
       '  <div><h2>대시보드</h2>',
       '    <div class="subtitle">' + periodLabel + (DASH.manager ? ' · ' + esc(DASH.manager) : '') + ' 요약</div></div>',
-      '  <button class="btn btn-primary" onclick="downloadExcel()"><span class="icon">📥</span> 엑셀 다운로드</button>',
+      /*
+       * 엑셀 다운로드는 관리자 화면에서만 보여준다.
+       * 직원 사이트(/staff)에서는 관리자가 들어와도 안 보인다 —
+       * 「직원 사이트는 직원이 보는 그대로」여야 하기 때문이다.
+       * (서버의 bulkData 도 requireAdmin 으로 한 번 더 막는다)
+       */
+      canSeeRoute(API.getUser(), 'bulk')
+        ? '  <button class="btn btn-primary" onclick="downloadExcel()"><span class="icon">📥</span> 엑셀 다운로드</button>'
+        : '',
       '</div>',
 
       // ── 기간·담당자 필터 ──
