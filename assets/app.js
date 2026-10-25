@@ -484,6 +484,13 @@ function afterProjectRoute() {
 function initApp() {
   const user = API.getUser();
   const root = document.getElementById('app');
+  const admin = user && user.role === 'admin';
+
+  /*
+   * 「관리자 / 직원」 딱지는 관리자 사이트에서만 보여준다.
+   * 직원 사이트(/staff)에서는 보여줄 까닭이 없다. 대표님 지시 (2026-10-26)
+   */
+  const badge = siteKind() === 'admin';
 
   // 담당자·영업 명단을 미리 받아 둔다 (선택칸을 채우기 위해)
   loadStaffNames();
@@ -509,6 +516,7 @@ function initApp() {
           <img alt="혜움컨설팅" class="sidebar-logo light">
           <img alt="혜움컨설팅" class="sidebar-logo dark">
           <p class="brand-sub">Finance Management</p>
+          ${badge ? `<span class="side-badge${admin ? '' : ' staff'}">${admin ? '관리자' : '직원'}</span>` : ''}
         </div>
         <div class="sidebar-divider"></div>
         <nav class="sidebar-nav">
@@ -547,6 +555,7 @@ function initApp() {
             <div class="user-avatar">${user.name.charAt(0)}</div>
             <div class="user-meta">
               <div class="user-name">${user.name}</div>
+              ${badge ? `<div class="user-role">${admin ? '관리자' : '일반 직원'}</div>` : ''}
             </div>
           </div>
           <button class="btn-logout" id="btn-logout"><span class="icon">🚪</span> 로그아웃</button>

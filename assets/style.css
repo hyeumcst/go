@@ -191,6 +191,7 @@ body { font-family: 'Pretendard', sans-serif; background: var(--bg-primary); col
 .id-domain { display: flex; align-items: center; padding: 0 0.75rem; white-space: nowrap; font-size: 0.875rem; color: var(--text-muted); background: var(--bg-secondary); border: 1px solid var(--border); border-left: none; border-top-right-radius: var(--radius-sm); border-bottom-right-radius: var(--radius-sm); }
 .id-field:focus-within .form-input, .id-field:focus-within .id-domain { border-color: var(--accent); }
 /* 사이드바에도 같은 표시를 작게 */
+.side-badge.staff { background: var(--info-bg); color: var(--info); }
 .side-badge { display: inline-block; margin-top: 0.35rem; padding: 0.12rem 0.5rem; border-radius: 999px; font-size: 0.65rem; font-weight: 700; background: var(--accent-soft); color: var(--accent); }
 
 /* ===== App Layout ===== */
@@ -210,6 +211,7 @@ body { font-family: 'Pretendard', sans-serif; background: var(--bg-primary); col
 .user-info { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.75rem; }
 .user-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--logo-grad); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.875rem; color: white; flex-shrink: 0; }
 .user-meta .user-name { font-size: 0.85rem; font-weight: 600; }
+.user-meta .user-role { font-size: 0.7rem; color: var(--text-muted); }
 .btn-logout { display: flex; align-items: center; gap: 0.5rem; width: 100%; padding: 0.5rem 0.75rem; margin-top: 0.5rem; border: none; background: var(--danger-bg); color: var(--danger); border-radius: var(--radius-sm); font-size: 0.8rem; cursor: pointer; transition: all var(--transition-fast); }
 .btn-logout:hover { background: var(--danger); color: white; }
 .main-content { flex: 1; margin-left: 260px; padding: 2rem; min-height: 100vh; }
