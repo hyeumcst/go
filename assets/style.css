@@ -2538,3 +2538,6 @@ tr:hover .pv-eye, .instructor-card:hover .pv-eye { opacity: 0.85; }
 .ii-mode.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 /* 표 머리글의 (별도)·(포함) 꼬리표 */
 .ii-table th em { font-style: normal; font-weight: 600; color: var(--accent); font-size: 0.72rem; }
+/* 수기작성에서 쓰지 않는 칸 — 잠겨 있다는 것이 보이게 */
+.ii-table .form-input.off { background: var(--bg-secondary); color: var(--text-muted); cursor: not-allowed; }
+.ii-mode:disabled { opacity: 0.45; cursor: not-allowed; }

@@ -5815,6 +5815,41 @@ function invItemMode(it) {
   return invItems(it).some(function (r) { return r.vat_incl; }) ? '포함' : '별도';
 }
 
+/*
+ * 항목을 어떻게 적을지.
+ *
+ *   자동계산 — 단가 × 수량 으로 공급가액을 낸다
+ *   수기작성 — 공급가액을 직접 적는다 (단가·수량은 쓰지 않는다)
+ *
+ * 매출·매입 줄의 [∑ 수기] 와 같은 뜻이다. 계산서에서는 줄마다가 아니라
+ * 한 장 단위로 고르게 했다 — 보통 한 계산서 안에서는 한 가지로 적기 때문이다.
+ * 기준은 줄마다 적힌 is_manual 을 그대로 쓴다 (따로 저장할 칸이 필요 없다).
+ */
+function invWriteMode(it) {
+  return invItems(it).some(function (r) { return r.is_manual; }) ? '수기작성' : '자동계산';
+}
+
+function setInvWriteMode(id, mode) {
+  const it = State.invoices.find(function (x) { return x._id === id; });
+  if (!it) return;
+  const manual = (mode === '수기작성');
+  const vmode = invMode(it);
+
+  invItems(it).forEach(function (r) {
+    if (manual) {
+      // 수기로 바꿀 때는 지금까지 계산된 금액을 시작값으로 (매출 쪽과 같다)
+      const c = invItemCalc(r, vmode);
+      r.supply = c.supply || '';
+      r.is_manual = true;
+    } else {
+      r.is_manual = false;
+      r.vat_manual = false;
+    }
+  });
+  syncInvAmount(it);
+  renderInvoices();
+}
+
 /** 품목 줄의 기준을 바꾼다 — 자동계산하던 줄만 다시 낸다 */
 function setInvItemMode(id, mode) {
   const it = State.invoices.find(function (x) { return x._id === id; });
@@ -5873,8 +5908,11 @@ function addInvItem(id) {
   const it = State.invoices.find(function (x) { return x._id === id; });
   if (!it) return;
   if (invItems(it).length >= 16) return showToast('항목은 16줄까지입니다.', 'warning');
-  // 새 줄도 지금 고른 기준을 따라간다
-  it.items.push(newInvItem({ vat_incl: invItemMode(it) === '포함' }));
+  // 새 줄도 지금 고른 기준·작성 방식을 따라간다
+  it.items.push(newInvItem({
+    vat_incl: invItemMode(it) === '포함',
+    is_manual: invWriteMode(it) === '수기작성'
+  }));
   renderInvoices();
 }
 
@@ -5889,8 +5927,10 @@ function resetInvItems(id) {
     return r.name || parseNumber(r.price) || parseNumber(r.supply);
   });
   if (written.length && !confirm('적어 넣은 항목 ' + written.length + '줄을 모두 지우고\n처음부터 다시 적을까요?')) return;
-  const incl = invItemMode(it) === '포함';   // 고른 기준은 그대로 둔다
-  it.items = [newInvItem({ vat_incl: incl })];
+  // 고른 기준과 작성 방식은 그대로 둔다
+  const incl = invItemMode(it) === '포함';
+  const manual = invWriteMode(it) === '수기작성';
+  it.items = [newInvItem({ vat_incl: incl, is_manual: manual })];
   syncInvAmount(it);
   renderInvoices();
   showToast('항목을 비웠습니다.', 'success');
@@ -6147,9 +6187,17 @@ function renderInvoices() {
     const items = invItems(it);
     out.push('<div class="inv-items">');
     const imode = invItemMode(it);
+    const wmode = invWriteMode(it);
+    const byHand = (wmode === '수기작성');
     const modeBtn = function (m) {
+      // 수기작성이면 단가를 안 쓰므로 별도/포함을 고를 까닭이 없다
       return '<button type="button" class="ii-mode' + (imode === m ? ' on' : '') + '"'
+        + (byHand ? ' disabled title="수기작성에서는 단가를 쓰지 않습니다"' : '')
         + ' onclick="setInvItemMode(\'' + id + '\', \'' + m + '\')">' + m + '</button>';
+    };
+    const writeBtn = function (m) {
+      return '<button type="button" class="ii-mode' + (wmode === m ? ' on' : '') + '"'
+        + ' onclick="setInvWriteMode(\'' + id + '\', \'' + m + '\')">' + m + '</button>';
     };
     out.push('<div class="ii-head">'
       + '<span class="lb">항목(품목)</span>'
@@ -6159,20 +6207,27 @@ function renderInvoices() {
       + '</span>'
       + '<button type="button" class="btn btn-outline btn-sm" onclick="addInvItem(\'' + id + '\')">＋ 항목 추가</button>'
       + '<button type="button" class="btn btn-ghost btn-sm" onclick="fillInvItems(\'' + id + '\')">매출에서 가져오기</button>'
+      // 자동계산으로 쓸지, 금액을 직접 적을지
+      + '<span class="ii-modes" title="자동계산은 단가 × 수량 으로 냅니다. 수기작성은 공급가액을 직접 적습니다.">'
+      +   '<i>작성</i>' + writeBtn('자동계산') + writeBtn('수기작성')
+      + '</span>'
       + '<button type="button" class="btn btn-ghost btn-sm" onclick="resetInvItems(\'' + id + '\')">↺ 초기화</button>'
       + '</div>');
 
     {
       out.push('<table class="ii-table"><thead><tr>'
-        + '<th>항목</th><th>수량</th><th>단가 <em>(' + imode + ')</em></th>'
+        + '<th>항목</th><th>수량</th><th>단가' + (byHand ? '' : ' <em>(' + imode + ')</em>') + '</th>'
         + '<th>공급가액</th><th>세액</th><th>합계</th><th>비고</th><th></th>'
         + '</tr></thead><tbody>');
       items.forEach(function (r, ri) {
         const c = invItemCalc(r, mode);
         const inp = function (field, val, cls, ph, elid) {
-          return '<input type="text" class="form-input ' + (cls || '') + '"'
+          // 수기작성에서는 수량·단가를 쓰지 않으므로 잠가 둔다
+          const off = byHand && (field === 'qty' || field === 'price');
+          return '<input type="text" class="form-input ' + (cls || '') + (off ? ' off' : '') + '"'
             + (elid ? ' id="' + elid + '"' : '')
-            + ' placeholder="' + (ph || '') + '" value="' + esc(val == null ? '' : val) + '"'
+            + (off ? ' disabled title="수기작성에서는 쓰지 않습니다"' : '')
+            + ' placeholder="' + (off ? '—' : (ph || '')) + '" value="' + esc(val == null ? '' : val) + '"'
             + ' oninput="updateInvItem(\'' + id + '\',' + ri + ',\'' + field + '\', this.value)">';
         };
         out.push('<tr>'
