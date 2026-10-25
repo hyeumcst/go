@@ -2498,3 +2498,9 @@ code {
 .pv-eye:hover { opacity: 1; }
 tr:hover .pv-eye, .instructor-card:hover .pv-eye { opacity: 0.85; }
 .recv-line + .recv-line { margin-top: 0.2rem; }
+
+/* ── 매입 누락 「확인함」 ──
+   확인해 둔 줄은 한눈에 구분되게 초록으로 둔다.
+   아직 안 본 건과 섞이면 어디까지 봤는지 알 수 없다. */
+.btn.chk-on { color: var(--success); border-color: var(--success); opacity: 0.9; }
+.btn.chk-on:hover { opacity: 1; }

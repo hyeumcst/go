@@ -308,6 +308,15 @@ function siteLabel() {
   return siteKind() === 'staff' ? '직원 사이트' : '관리자 사이트';
 }
 
+/*
+ * 관리자 전용 표시를 그릴지.
+ * 관리자 계정이면서 관리자 주소로 들어왔을 때만 참이다.
+ * 직원 주소에서는 관리자가 들어와도 거짓 — 직원이 보는 그대로여야 하므로.
+ */
+function isAdminView() {
+  return siteKind() === 'admin' && API.isAdmin();
+}
+
 /**
  * 회사 메일 주소의 뒷부분.
  *
@@ -954,7 +963,8 @@ async function renderDashboard() {
       '</div>',
 
       // ── 경고 ──
-      (data.alerts.missingExpense > 0
+      // 매입 누락 경고는 관리자만 다룬다 (서버도 직원에게는 0 으로 준다)
+      (isAdminView() && data.alerts.missingExpense > 0
         ? '<div class="warn-box click" style="margin-bottom:1.25rem"'
           + ' onclick="showMissingExpense()" title="눌러서 해당 과정 보기">'
           + '<span class="ico">' + icon('alert', 18) + '</span>'
@@ -1281,6 +1291,14 @@ async function renderProjectList() {
   } catch (e) { showToast(e.message, 'error'); return; }
 
   const t = data.totals || {};
+
+  /*
+   * 「확인」 칸을 보일지.
+   * 매입 누락만 걸러 보고 있을 때, 관리자 화면에서만 나온다.
+   * 보통 때의 과정 목록에는 상관없는 칸이라 내놓지 않는다.
+   */
+  const showCheck = !!LIST.missing_expense && isAdminView();
+
   const opt = function (v, label, cur) {
     return '<option value="' + esc(v) + '"' + (String(cur) === String(v) ? ' selected' : '') + '>' + esc(label) + '</option>';
   };
@@ -1299,7 +1317,11 @@ async function renderProjectList() {
     (LIST.missing_expense
       ? '<div class="warn-box click" style="margin-bottom:1rem" onclick="clearMissingExpense()">'
         + '<span class="ico">' + icon('alert', 18) + '</span>'
-        + '<span class="txt"><b>매입이 하나도 없는 과정</b>만 보고 있습니다.</span>'
+        + '<span class="txt"><b>매입이 하나도 없는 과정</b>만 보고 있습니다.'
+        + (isAdminView()
+            ? ' 살펴보고 문제가 없으면 오른쪽 <b>확인함</b>을 눌러주세요 — 그 건은 다음부터 경고에 안 나옵니다.'
+            : '')
+        + '</span>'
         + '<span class="go">✕ 전체 보기</span></div>'
       : ''),
 
@@ -1358,7 +1380,8 @@ async function renderProjectList() {
         '    <thead><tr>',
         '      <th class="th-mid">회사</th><th>고객사</th><th>구분</th><th>과정명</th><th>교육일정</th><th>담당자</th>',
         '      <th class="th-num">총 매출</th><th class="th-num">총 매입</th><th class="th-num">이익</th>',
-        '      <th>발행일</th><th class="th-num">미수금</th>',
+        '      <th>발행일</th><th class="th-num">미수금</th>'
+      + (showCheck ? '<th class="th-mid">확인</th>' : ''),
         '    </tr></thead><tbody>',
         data.projects.map(function (p) {
           const profit = (p.total_sales || 0) - (p.total_expenses || 0);
@@ -1380,12 +1403,44 @@ async function renderProjectList() {
             +   (p.unpaid_amount > 0
                 ? '<span class="unpaid-badge">' + formatNumber(p.unpaid_amount) + '</span>'
                 : '<span style="color:var(--success); font-size:0.8rem">완료</span>')
-            + '</td></tr>';
+            + '</td>'
+            + (showCheck ? '<td class="c-mid">' + expenseCheckCell(p) + '</td>' : '')
+            + '</tr>';
         }).join(''),
         '    </tbody></table>',
         '</div>'
       ].join(''))
   ].join('');
+}
+
+/*
+ * 매입 누락 경고를 「한 건씩」 확인함으로 표시하는 칸.
+ *
+ * 줄 전체가 과정 열기로 이어져 있으므로 여기서 번짐을 멈춘다(stopPropagation).
+ * 그러지 않으면 누르자마자 과정 수정 화면으로 넘어가 버린다.
+ */
+function expenseCheckCell(p) {
+  if (p.expense_checked) {
+    const who = [p.expense_checked_by, p.expense_checked_at].filter(Boolean).join(' · ');
+    return '<button type="button" class="btn btn-ghost btn-sm chk-on"'
+      + ' title="' + esc(who ? who + ' 에 확인했습니다. 눌러서 되돌리기' : '눌러서 되돌리기') + '"'
+      + ' onclick="event.stopPropagation(); setExpenseCheck(' + p.id + ', false)">'
+      + '✓ 확인함</button>';
+  }
+  return '<button type="button" class="btn btn-outline btn-sm"'
+    + ' title="살펴봤고 문제가 없다는 표시입니다. 이 건은 다음부터 경고에 안 나옵니다."'
+    + ' onclick="event.stopPropagation(); setExpenseCheck(' + p.id + ', true)">확인함</button>';
+}
+
+/** 한 건을 확인함으로 / 되돌리기 */
+async function setExpenseCheck(id, on) {
+  try {
+    await API.put('/projects/' + id + '/expense-check', { checked: on });
+    showToast(on ? '확인함으로 표시했습니다.' : '확인 표시를 되돌렸습니다.', 'success');
+    renderProjectList();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
 }
 
 function setListFilter(key, value) {
