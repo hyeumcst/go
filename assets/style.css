@@ -2642,3 +2642,5 @@ tr.v-done td { background: var(--success-bg); }
 /* 세금계산서 발행요청 */
 .btn.req-on { color: var(--success); border-color: var(--success); }
 .btn.req-on i { font-style: normal; display: block; font-size: 0.68rem; color: var(--text-muted); font-weight: 400; }
+/* 과정 등록 화면의 발행요청 단추 — 미리보기 옆 */
+.inv-req { margin-left: 0.4rem; }

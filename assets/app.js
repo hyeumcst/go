@@ -6680,6 +6680,7 @@ function renderInvoices() {
       });
     out.push('<button type="button" class="btn btn-outline btn-sm inv-prev"'
       + ' onclick="previewInvoice(\'' + id + '\')">🔍 미리보기</button>');
+    out.push(formReqBtn(it));
     out.push('</div>');
 
     out.push('</div>');
@@ -6688,6 +6689,58 @@ function renderInvoices() {
 
   State.invoices.forEach(renderInvCheck);
   renderInvoiceTotals();
+}
+
+/*
+ * 과정 등록 화면의 [발행요청].
+ *
+ * 세금계산서 목록에도 같은 단추가 있지만 그 화면은 관리자만 볼 수 있다.
+ * 계산서를 적는 자리에 두어야 직원도 적자마자 요청할 수 있다.
+ * (대표님 지시 2026-10-26)
+ *
+ * 아직 저장하지 않은 계산서는 번호가 없어 요청할 수 없다 — 그때는
+ * 잠그고 까닭을 알려준다.
+ */
+function formReqBtn(it) {
+  if (!it.id) {
+    return '<button type="button" class="btn btn-ghost btn-sm inv-req" disabled'
+      + ' title="과정을 먼저 저장해주세요. 저장한 뒤에 요청할 수 있습니다.">발행요청</button>';
+  }
+  if (it.requested) {
+    const more = it.requested_count > 1 ? ' ×' + it.requested_count : '';
+    return '<button type="button" class="btn btn-ghost btn-sm inv-req req-on"'
+      + ' title="' + esc((it.requested_by || '') + ' · ' + (it.requested_at || '')
+        + ' 에 요청했습니다. 눌러서 다시 보내기') + '"'
+      + ' onclick="requestFromForm(' + it.id + ', true)">✓ 요청함' + more + '</button>';
+  }
+  return '<button type="button" class="btn btn-primary btn-sm inv-req"'
+    + ' title="김소애 · 임영환 님께 발행요청 메일을 보냅니다"'
+    + ' onclick="requestFromForm(' + it.id + ', false)">발행요청</button>';
+}
+
+/** 과정 등록 화면에서 발행요청 보내기 */
+async function requestFromForm(invoiceId, again) {
+  const it = State.invoices.filter(function (x) { return x.id === invoiceId; })[0] || {};
+  const ask = again
+    ? '이미 ' + (it.requested_at ? it.requested_at + ' 에 ' : '') + '요청했습니다.\n다시 보낼까요?'
+    : '김소애 · 임영환 님께 발행요청 메일을 보낼까요?';
+  if (!confirm(ask)) return;
+
+  const note = prompt('함께 남길 말이 있으면 적어주세요. (없으면 그냥 확인)', '');
+  if (note === null) return;
+
+  try {
+    const r = await API.post('/invoices/' + invoiceId + '/request', { note: note });
+    showToast(r.message, 'success');
+    // 보낸 표시를 바로 반영한다 (화면을 다시 불러오지 않고)
+    it.requested = true;
+    it.requested_at = r.sent_at;
+    it.requested_by = r.sent_by;
+    it.requested_count = (it.requested_count || 0) + 1;
+    renderInvoices();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
 }
 
 /**
