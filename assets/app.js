@@ -320,9 +320,14 @@ function siteLabel() {
  */
 const PERSON_NAME = { huc: '임영환', sakim: '김소애', shchoi: '최선화' };
 
+function myKey() {
+  const u = API.getUser() || {};
+  return String(u.username || '').split('@')[0].trim().toLowerCase();
+}
+
 function myName() {
   const u = API.getUser() || {};
-  const key = String(u.username || '').split('@')[0].trim().toLowerCase();
+  const key = myKey();
   return PERSON_NAME[key] || u.name || key;
 }
 
@@ -1278,7 +1283,8 @@ const VISIT = {
   q: '',
   done: '',          // '1' 이면 다녀온 것만
   editing: null,     // 지금 적고 있는 과정 번호
-  rows: []
+  rows: [],
+  people: []         // 관리자가 고를 수 있는 사람 (직원은 빈 목록)
 };
 
 async function renderVisits() {
@@ -1289,6 +1295,8 @@ async function renderVisits() {
   } catch (e) { showToast(e.message, 'error'); return; }
 
   VISIT.rows = data.visits || [];
+  // 관리자만 받는다 (직원에게는 빈 목록이 온다)
+  VISIT.people = data.people || [];
   const t = data.totals || {};
 
   content.innerHTML = [
@@ -1413,6 +1421,8 @@ function openVisitEditor(projectId, keep) {
     State.schedMode = {};
     VISIT._type = type;
     VISIT._note = r.note || '';
+    // 이미 적힌 사람이 있으면 그 사람, 없으면 나
+    VISIT._who = r.visited_by || myKey();
   }
 
   const type = VISIT._type || '당일';
@@ -1426,7 +1436,7 @@ function openVisitEditor(projectId, keep) {
     + '  <div class="v-ed-head"><b>' + esc(r.course_name || '') + '</b>'
     +      '<span class="v-ed-sub">' + esc(r.client_name || '') + '</span>'
     // 지금 로그인한 사람 이름으로 적힌다 — 저장하기 전에 알 수 있게
-    +      '<span class="v-ed-who">다녀온 사람 <b>' + esc(myName()) + '</b></span></div>'
+    +      whoPicker() + '</div>'
     + '  <div class="rline sched-line">'
     + '    <div class="rf rf-pick"><span class="cap">일정 유형</span>'
     + '      <select id="p-schedule-type" class="form-select" onchange="updateDateUI()">'
@@ -1460,6 +1470,29 @@ function openVisitEditor(projectId, keep) {
   tr.scrollIntoView({ block: 'nearest' });
 }
 
+/*
+ * 「다녀온 사람」 칸.
+ *
+ * 관리자는 고를 수 있다 — 대신 적어 주거나, 잘못 들어간 것을 고쳐야
+ * 할 때가 있기 때문이다. (대표님 지시 2026-10-26)
+ * 직원은 자기 이름으로만 적힌다. 남의 이름으로 적을 수 있으면
+ * 누가 갔는지가 믿을 수 없는 숫자가 된다. 서버에서도 한 번 더 막는다.
+ */
+function whoPicker() {
+  const people = VISIT.people || [];
+  if (!people.length) {
+    return '<span class="v-ed-who">다녀온 사람 <b>' + esc(myName()) + '</b></span>';
+  }
+  const cur = VISIT._who || myKey();
+  return '<span class="v-ed-who">다녀온 사람'
+    + '<select id="v-who" class="form-select" onchange="VISIT._who = this.value">'
+    + people.map(function (p) {
+        return '<option value="' + esc(p.key) + '"' + (p.key === cur ? ' selected' : '') + '>'
+          + esc(p.name) + '</option>';
+      }).join('')
+    + '</select></span>';
+}
+
 function closeVisitEditor(clear) {
   const old = document.getElementById('vedit');
   if (old) old.remove();
@@ -1474,7 +1507,8 @@ async function saveVisit(projectId) {
 
   try {
     const res = await API.put('/visits/' + projectId, {
-      schedule_type: type, schedule_dates: dates, note: VISIT._note || ''
+      schedule_type: type, schedule_dates: dates, note: VISIT._note || '',
+      visited_by: VISIT._who || myKey()
     });
     showToast('교육진행을 저장했습니다. (' + res.days + '일)', 'success');
     VISIT.editing = null;

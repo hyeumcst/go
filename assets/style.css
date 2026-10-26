@@ -2636,3 +2636,6 @@ tr.v-done td { background: var(--success-bg); }
   font-size: clamp(0.9rem, 8cqi, 1.15rem);
   white-space: nowrap;
 }
+/* 적는 칸의 「다녀온 사람」 고르개 */
+.v-ed-who { display: inline-flex; align-items: center; gap: 0.4rem; }
+.v-ed-who .form-select { padding: 0.25rem 1.6rem 0.25rem 0.5rem; font-size: 0.8rem; height: auto; min-width: 6.5rem; }
