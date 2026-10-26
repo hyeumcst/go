@@ -144,7 +144,11 @@ const API = {
   deleteOverhead(id) { return this.delete('/overheads/' + id); },
 
   // 사용자
-  login(username, password) { return this.post('/auth/login', { username, password }); },
+  /* 어느 주소(관리자/직원)로 들어왔는지 함께 보낸다 — 서버가 들일지 가린다 */
+  login(username, password) {
+    var site = (typeof SITE === 'string' && SITE === 'staff') ? 'staff' : 'admin';
+    return this.post('/auth/login', { username, password, site });
+  },
   changePassword(data) { return this.post('/auth/password', data); },
   getUsers() { return this.get('/auth/users'); },
   registerUser(data) { return this.post('/auth/register', data); },

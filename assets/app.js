@@ -377,6 +377,22 @@ function togglePw(btn) {
   btn.classList.toggle('on', show);
 }
 
+/*
+ * 「직원 사이트로 가기」 길 안내.
+ * 관리자 주소에서 직원 계정으로 로그인하려 할 때만 나온다.
+ */
+function showStaffWay() {
+  if (document.getElementById('to-staff')) return;
+  const form = document.getElementById('login-form');
+  if (!form) return;
+  const box = document.createElement('div');
+  box.id = 'to-staff';
+  box.className = 'to-staff';
+  box.innerHTML = '여기는 <b>관리자 사이트</b>입니다.'
+    + '<a class="btn btn-primary btn-sm" href="../staff/">직원 사이트로 가기 →</a>';
+  form.parentNode.insertBefore(box, form.nextSibling);
+}
+
 // --- 로그인 ---
 function initLogin() {
   const root = document.getElementById('app');
@@ -424,6 +440,11 @@ function initLogin() {
       showScreen();                     // 새로고침 대신 화면만 다시 그린다
     } catch (err) {
       showToast(err.message, 'error');
+      /*
+       * 직원 계정으로 관리자 주소에 들어온 경우 —
+       * 말만 해 주면 직원 주소를 몰라 헤매신다. 갈 수 있는 길을 함께 둔다.
+       */
+      if (/직원 사이트/.test(err.message || '')) showStaffWay();
       btn.disabled = false;
       btn.innerHTML = '로그인';
     }
