@@ -2644,3 +2644,10 @@ tr.v-done td { background: var(--success-bg); }
 .btn.req-on i { font-style: normal; display: block; font-size: 0.68rem; color: var(--text-muted); font-weight: 400; }
 /* 과정 등록 화면의 발행요청 단추 — 미리보기 옆 */
 .inv-req { margin-left: 0.4rem; }
+
+/* ── 세금계산서 목록의 「발행요청」 칸 — 보기만 한다 ── */
+.req-no { color: var(--text-muted); }
+.req-did { display: inline-flex; flex-direction: column; line-height: 1.3; }
+.req-did b { font-size: 0.82rem; color: var(--text-primary); font-weight: 700; }
+.req-did em { font-style: normal; font-size: 0.7rem; color: var(--accent); margin-left: 0.2rem; }
+.req-did i { font-style: normal; font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; }

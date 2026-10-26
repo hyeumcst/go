@@ -462,7 +462,7 @@ function initLogin() {
  *    (Auth.gs 의 requireAdmin — 직원은 과정 삭제·명단 등록·입금 체크·
  *     정산자료·계정 관리를 아예 할 수 없다)
  */
-const STAFF_ROUTES = ['project-form', 'dashboard', 'analytics', 'visits', 'projects', 'password'];
+const STAFF_ROUTES = ['project-form', 'dashboard', 'analytics', 'visits', 'projects', 'tax', 'password'];
 
 /**
  * 이 사람에게 이 메뉴를 보여줄지.
@@ -5928,51 +5928,22 @@ async function deleteStaff(id) {
    (발행 내용은 과정 등록에서, 입금 확인은 여기에서)
    ═══════════════════════════════════════════════════════════ */
 
-const TAX = { year: '', month: '', company: '', status: 'unpaid', q: '' };
+const TAX = { year: '', month: '', company: '', status: 'unpaid', q: '', requester: '' };
 let TAX_DATA = null;
 
 /*
- * 세금계산서 발행요청 — 담당자(김소애·임영환)에게 메일로 알린다.
+ * 세금계산서 목록의 「발행요청」 칸 — 보기만 한다.
  *
- * 카톡·문자는 업체 계약과 건당 비용이 들고, 사이트 안 알림은 로그인해야
- * 보여서 「지금 알려주는 것」이 못 된다. (대표님과 의논 2026-10-26)
+ * 요청을 보내는 것은 과정 등록 화면에서 한다 (대표님 지시 2026-10-26).
+ * 계산서를 적는 자리에서 바로 보내야 하고, 여기는 「누가 언제 요청했는지」
+ * 를 모아 보는 자리이기 때문이다.
  */
 function reqCell(v) {
-  if (v.requested) {
-    const when = String(v.requested_at || '').slice(5);   // 월-일 시:분
-    const more = v.requested_count > 1 ? ' ×' + v.requested_count : '';
-    return '<button type="button" class="btn btn-ghost btn-sm req-on"'
-      + ' title="' + esc((v.requested_by || '') + ' · ' + (v.requested_at || '') + ' 에 요청했습니다.'
-        + ' 눌러서 다시 보내기') + '"'
-      + ' onclick="sendInvoiceRequest(' + v.id + ', true)">✓ 요청함' + more + '<i>' + esc(when) + '</i></button>';
-  }
-  return '<button type="button" class="btn btn-outline btn-sm"'
-    + ' title="김소애 · 임영환 님께 발행요청 메일을 보냅니다"'
-    + ' onclick="sendInvoiceRequest(' + v.id + ', false)">발행요청</button>';
-}
-
-/** 발행요청 메일 보내기 */
-async function sendInvoiceRequest(id, again) {
-  const v = ((TAX_DATA && TAX_DATA.invoices) || []).filter(function (x) { return x.id === id; })[0];
-  const what = v
-    ? '「' + (v.client_name || '') + ' · ' + (v.course_name || '') + '」\n'
-      + formatNumber(v.total_amount) + '원\n\n'
-    : '';
-  const ask = again
-    ? what + '이미 ' + (v && v.requested_at ? v.requested_at + ' 에 ' : '') + '요청했습니다.\n다시 보낼까요?'
-    : what + '김소애 · 임영환 님께 발행요청 메일을 보낼까요?';
-  if (!confirm(ask)) return;
-
-  const note = prompt('함께 남길 말이 있으면 적어주세요. (없으면 그냥 확인)', '') ;
-  if (note === null) return;                      // 취소
-
-  try {
-    const r = await API.post('/invoices/' + id + '/request', { note: note });
-    showToast(r.message, 'success');
-    renderTax();
-  } catch (e) {
-    showToast(e.message, 'error');
-  }
+  if (!v.requested) return '<span class="req-no">-</span>';
+  const more = v.requested_count > 1 ? '<em>×' + v.requested_count + '</em>' : '';
+  return '<span class="req-did" title="' + esc((v.requested_at || '') + ' 에 요청했습니다') + '">'
+    + '<b>' + esc(v.requested_by || '-') + '</b>' + more
+    + '<i>' + esc(v.requested_at || '') + '</i></span>';
 }
 
 async function renderTax() {
@@ -6030,6 +6001,14 @@ async function renderTax() {
     '    <input type="text" id="tax-q" class="form-input" placeholder="고객사 · 과정명 · 받는 사람 검색"'
     + ' value="' + esc(TAX.q) + '" oninput="onTaxSearch(this.value)">',
     '  </div>',
+    /* 요청한 사람으로 거르기 — 요청한 적이 있을 때만 나온다 */
+    ((f.requesters || []).length
+      ? '<select class="form-select" onchange="setTax(\'requester\', this.value)">'
+        + opt('', '요청자 전체', TAX.requester)
+        + f.requesters.map(function (p) { return opt(p.key, p.name + ' 요청', TAX.requester); }).join('')
+        + opt('-', '아직 요청 안 함', TAX.requester)
+        + '</select>'
+      : ''),
     '  <select class="form-select" onchange="setTax(\'status\', this.value)">',
     opt('unpaid', '미수만', TAX.status),
     opt('paid', '입금완료만', TAX.status),
@@ -6066,7 +6045,7 @@ async function renderTax() {
         '  <th class="th-mid">회사</th><th>발행일</th><th>고객사</th><th>과정명</th>',
         '  <th class="th-mid">장</th><th class="th-num">공급가액</th><th class="th-num">부가세</th>',
         '  <th class="th-num">합계</th><th>받는 사람</th><th class="th-mid">입금일</th>',
-        '  <th class="th-num">미수금</th><th class="th-mid">발행요청</th>',
+        '  <th class="th-num">미수금</th><th class="th-mid">발행요청 <em class="th-sub">(누가 · 언제)</em></th>',
         '</tr></thead><tbody>',
         d.invoices.map(function (v) {
           const paid = !!v.paid_date;
