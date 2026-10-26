@@ -1339,7 +1339,8 @@ code {
 
 /* ── 지표 카드 ── */
 .stats-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  /* 칸을 조금 넉넉히 잡아 숫자가 작아지지 않게 한다 (210 → 240) */
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 0.9rem; margin-bottom: 1.25rem;
 }
 .stat-card {
@@ -2563,3 +2564,75 @@ tr.v-done td { background: var(--success-bg); }
 /* 눌러서 넘어갈 수 있는 지표 카드 */
 .stat-card.click { cursor: pointer; transition: all var(--transition-fast); }
 .stat-card.click:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+
+/* ── 교육진행 — 누가 다녀왔는지 ── */
+.who-bar { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: -0.5rem 0 1rem; }
+.who-chip {
+  display: inline-flex; align-items: baseline; gap: 0.35rem;
+  padding: 0.3rem 0.65rem; border-radius: 999px;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  font-size: 0.78rem; color: var(--text-secondary);
+}
+.who-chip b { color: var(--text-primary); font-weight: 700; }
+.who-tag { font-weight: 600; color: var(--text-primary); }
+.v-ed-who { margin-left: auto; font-size: 0.78rem; color: var(--text-muted); }
+.v-ed-who b { color: var(--accent); }
+.v-ed-head { display: flex; align-items: baseline; }
+/* 대시보드 카드 안의 사람별 줄 */
+.stat-sub .who-row { display: flex; gap: 0.35rem; }
+.stat-sub .who-row b { color: var(--text-secondary); font-weight: 700; }
+.stat-sub .who-row i { font-style: normal; }
+
+/* ══════════════════════════════════════════════
+   숫자가 모니터 크기에 맞춰 줄었다 늘었다 하도록
+
+   전에는 글씨 크기가 고정이라, 화면이 조금만 좁아지면
+   「359,162,620원」의 뒷자리가 잘리거나 줄이 아래로 꺾였다.
+   1440px 에서 37px 이 잘려 나갔다.
+
+   그래서 「칸의 폭」에 맞춰 글씨 크기를 정한다 (cqi = 칸 폭의 1%).
+   cqi 를 모르는 옛 브라우저를 위해 화면 폭(vw) 기준을 먼저 적어 둔다 —
+   뒤 줄을 못 읽으면 앞 줄이 그대로 쓰인다.
+   ══════════════════════════════════════════════ */
+
+/* ── 대시보드 지표 카드 ── */
+/*
+ * container-type 을 주면 그 칸은 「내용이 얼마나 넓은지」를 바깥에
+ * 알리지 않는다. 그래서 flex 칸에 그냥 주면 폭이 0 으로 접혀 버리고,
+ * 글씨도 가장 작은 값으로 붙박이가 된다 (실제로 그랬다).
+ * flex: 1 로 남는 자리를 차지하게 해 두어야 한다.
+ */
+.stat-body { flex: 1 1 auto; min-width: 0; container-type: inline-size; }
+
+.stat-value {
+  font-size: clamp(0.85rem, 1.6vw, 1.5rem);
+  font-size: clamp(0.85rem, 12cqi, 1.5rem);
+  white-space: nowrap;
+}
+.stat-label {
+  font-size: clamp(0.68rem, 0.9vw, 0.82rem);
+  font-size: clamp(0.68rem, 6cqi, 0.82rem);
+}
+.stat-sub {
+  font-size: clamp(0.62rem, 0.8vw, 0.76rem);
+  font-size: clamp(0.62rem, 5.2cqi, 0.76rem);
+  /* 그래도 넘치면 말없이 잘리지 말고 … 로 알려준다 */
+  overflow: hidden; text-overflow: ellipsis;
+}
+/* 교육진행 카드의 사람별 줄은 여러 줄이라 가로로 안 밀린다 */
+.stat-sub .who-row { white-space: nowrap; }
+
+/* ── 목록 위 합계 줄 ── */
+.list-total .cnt    { font-size: clamp(0.8rem, 1vw, 0.95rem); }
+.list-total .cnt b  { font-size: clamp(0.95rem, 1.25vw, 1.15rem); }
+.list-total .it     { font-size: clamp(0.76rem, 0.95vw, 0.88rem); }
+.list-total .it b   { font-size: clamp(0.88rem, 1.15vw, 1.05rem); }
+.list-total .it em  { font-size: clamp(0.7rem, 0.9vw, 0.82rem); }
+
+/* ── 회사 고르기 (전체 · 혜움컨설팅 · 그로우인) ── */
+.co-btn { container-type: inline-size; }
+.co-btn .vl {
+  font-size: clamp(0.9rem, 1.3vw, 1.15rem);
+  font-size: clamp(0.9rem, 8cqi, 1.15rem);
+  white-space: nowrap;
+}

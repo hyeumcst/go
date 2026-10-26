@@ -313,6 +313,19 @@ function siteLabel() {
  * 관리자 계정이면서 관리자 주소로 들어왔을 때만 참이다.
  * 직원 주소에서는 관리자가 들어와도 거짓 — 직원이 보는 그대로여야 하므로.
  */
+/*
+ * 지금 로그인한 사람의 이름.
+ * 계정에 적힌 이름이 사람 이름이 아닌 경우가 있어(huc → 혜움컨설팅)
+ * 아이디로 한 번 바로잡는다. 서버의 personName() 과 같은 표다.
+ */
+const PERSON_NAME = { huc: '임영환', sakim: '김소애', shchoi: '최선화' };
+
+function myName() {
+  const u = API.getUser() || {};
+  const key = String(u.username || '').split('@')[0].trim().toLowerCase();
+  return PERSON_NAME[key] || u.name || key;
+}
+
 function isAdminView() {
   return siteKind() === 'admin' && API.isAdmin();
 }
@@ -972,7 +985,7 @@ async function renderDashboard() {
        */
       card('c-amber', 'visit', '교육진행',
         formatNumber((data.visits || {}).days || 0) + '<em>일</em>',
-        formatNumber((data.visits || {}).projects || 0) + '개 과정',
+        peopleLine((data.visits || {}).byPerson, (data.visits || {}).projects || 0),
         'visits'),
       '</div>',
 
@@ -1288,6 +1301,14 @@ async function renderVisits() {
     '  <span class="it"><i>전체 과정</i><b>' + formatNumber(t.projects || 0) + '</b>건</span>',
     '</div>',
 
+    /* 누가 얼마나 다녀왔는지 — 대표님 지시 (2026-10-26) */
+    ((t.byPerson || []).length
+      ? '<div class="who-bar">' + t.byPerson.map(function (p) {
+          return '<span class="who-chip"><b>' + esc(p.name) + '</b>'
+            + formatNumber(p.projects) + '개 과정 · 진행일수 ' + formatNumber(p.days) + '일</span>';
+        }).join('') + '</div>'
+      : ''),
+
     '<div class="list-filter">',
     '  <div class="f-search">',
     '    <input type="text" id="vs-q" class="form-input" placeholder="과정명 · 고객사 · 담당자 · 메모 검색"'
@@ -1306,7 +1327,7 @@ async function renderVisits() {
         '<thead><tr>',
         '  <th class="th-mid">회사</th><th>고객사</th><th>과정명</th>',
         '  <th>교육일정 <em class="th-sub">(하기로 한 날)</em></th>',
-        '  <th>다녀온 날</th><th class="th-mid">진행일수</th><th>메모</th><th class="th-mid"></th>',
+        '  <th>다녀온 날</th><th class="th-mid">진행일수</th><th class="th-mid">다녀온 사람</th><th>메모</th><th class="th-mid"></th>',
         '</tr></thead><tbody>',
         VISIT.rows.map(visitRow).join(''),
         '</tbody></table></div>'
@@ -1332,6 +1353,8 @@ function visitRow(r) {
         ? '<b>' + esc(r.visit_type) + '</b> ' + esc(schedText(r.visit_dates))
         : '<span style="color:var(--text-muted)">아직 안 적음</span>') + '</td>'
     + '<td class="c-mid">' + (went ? '<b class="v-cnt">' + r.visit_days + '일</b>' : '-') + '</td>'
+    + '<td class="c-mid" style="font-size:0.82rem">'
+    +   (went ? '<span class="who-tag">' + esc(r.person || '-') + '</span>' : '-') + '</td>'
     + '<td style="font-size:0.8rem; color:var(--text-secondary)">' + esc(r.note || '') + '</td>'
     /*
      * 고치기·지우기를 표에서 바로 누를 수 있게 둔다.
@@ -1398,10 +1421,12 @@ function openVisitEditor(projectId, keep) {
 
   const tr = document.createElement('tr');
   tr.id = 'vedit';
-  tr.innerHTML = '<td colspan="8">'
+  tr.innerHTML = '<td colspan="9">'
     + '<div class="v-editor">'
     + '  <div class="v-ed-head"><b>' + esc(r.course_name || '') + '</b>'
-    +      '<span class="v-ed-sub">' + esc(r.client_name || '') + '</span></div>'
+    +      '<span class="v-ed-sub">' + esc(r.client_name || '') + '</span>'
+    // 지금 로그인한 사람 이름으로 적힌다 — 저장하기 전에 알 수 있게
+    +      '<span class="v-ed-who">다녀온 사람 <b>' + esc(myName()) + '</b></span></div>'
     + '  <div class="rline sched-line">'
     + '    <div class="rf rf-pick"><span class="cap">일정 유형</span>'
     + '      <select id="p-schedule-type" class="form-select" onchange="updateDateUI()">'
@@ -1469,6 +1494,19 @@ async function deleteVisit(projectId) {
     VISIT.editing = null;
     renderVisits();
   } catch (e) { showToast(e.message, 'error'); }
+}
+
+/**
+ * 「임영환 2개 과정 · 5일」 처럼 사람별로 한 줄씩.
+ * 아무도 안 다녀왔으면 몇 개 과정인지만 보여준다.
+ */
+function peopleLine(byPerson, projects) {
+  const list = Array.isArray(byPerson) ? byPerson : [];
+  if (!list.length) return formatNumber(projects) + '개 과정';
+  return list.map(function (p) {
+    return '<span class="who-row"><b>' + esc(p.name) + '</b>'
+      + '<i>' + formatNumber(p.projects) + '개 과정 · ' + formatNumber(p.days) + '일</i></span>';
+  }).join('');
 }
 
 // ═══════════ 과정 목록 ═══════════
