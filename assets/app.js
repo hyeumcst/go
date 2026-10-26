@@ -423,7 +423,7 @@ function initLogin() {
  *    (Auth.gs 의 requireAdmin — 직원은 과정 삭제·명단 등록·입금 체크·
  *     정산자료·계정 관리를 아예 할 수 없다)
  */
-const STAFF_ROUTES = ['project-form', 'dashboard', 'analytics', 'projects', 'password'];
+const STAFF_ROUTES = ['project-form', 'dashboard', 'analytics', 'visits', 'projects', 'password'];
 
 /**
  * 이 사람에게 이 메뉴를 보여줄지.
@@ -535,7 +535,8 @@ function initApp() {
 
           ${section('메인', [
             item('dashboard', '대시보드', true),
-            item('analytics', '매출·매입 분석')
+            item('analytics', '매출·매입 분석'),
+            item('visits', '교육진행')
           ])}
           ${section('상세매출관리', [
             item('projects', '과정(매출/매입) 목록'),
@@ -773,6 +774,7 @@ function navigate(route, params = null) {
     case 'password': renderPassword(); break;
     case 'dashboard': renderDashboard(); break;
     case 'analytics': renderAnalytics(); break;
+    case 'visits': renderVisits(); break;
     case 'tax': renderTax(); break;
     case 'overheads': renderOverheads(); break;
     case 'ent-client': renderEntity('client'); break;
@@ -1235,6 +1237,215 @@ async function downloadExcel() {
 }
 
 // --- 과정 목록 ---
+/* ═══════════════════════════════════════════════════════════
+   교육진행 — 실제로 현장에 다녀온 날
+
+   과정에 적는 「교육일정」은 하기로 한 날이고,
+   여기는 실제로 나간 날이다. 둘은 다를 수 있다.
+
+   날짜를 고르는 칸은 과정 등록의 교육일정과 똑같은 위젯을 그대로 쓴다.
+   같은 일을 두 가지 모양으로 익히게 하면 안 되기 때문이다.
+   (그 위젯은 #p-schedule-type · #sched-box · #sched-desc · #sched-summary
+    와 State.schedules 를 본다 — 여기서도 같은 이름으로 그려 준다)
+   ═══════════════════════════════════════════════════════════ */
+
+const VISIT = {
+  q: '',
+  done: '',          // '1' 이면 다녀온 것만
+  editing: null,     // 지금 적고 있는 과정 번호
+  rows: []
+};
+
+async function renderVisits() {
+  const content = document.getElementById('main-content');
+  let data;
+  try {
+    data = await API.get('/visits' + API.qs({ q: VISIT.q, done: VISIT.done }));
+  } catch (e) { showToast(e.message, 'error'); return; }
+
+  VISIT.rows = data.visits || [];
+  const t = data.totals || {};
+
+  content.innerHTML = [
+    '<div class="page-header"><div><h2>교육진행</h2>',
+    '  <div class="subtitle">실제로 현장에 다녀온 날을 적어 둡니다. 과정에 적은 교육일정과 달라도 됩니다.</div></div></div>',
+
+    '<div class="list-total">',
+    '  <span class="cnt"><b>' + formatNumber(t.done || 0) + '</b>건 다녀옴</span>',
+    '  <span class="it"><i>다녀온 날</i><b class="sales">' + formatNumber(t.days || 0) + '</b>일</span>',
+    '  <span class="it"><i>전체 과정</i><b>' + formatNumber(t.projects || 0) + '</b>건</span>',
+    '</div>',
+
+    '<div class="list-filter">',
+    '  <div class="f-search">',
+    '    <input type="text" id="vs-q" class="form-input" placeholder="과정명 · 고객사 · 담당자 · 메모 검색"'
+    + ' value="' + esc(VISIT.q) + '" oninput="onVisitSearch(this.value)">',
+    '  </div>',
+    '  <select class="form-select" onchange="setVisitFilter(\'done\', this.value)">',
+    '    <option value=""' + (VISIT.done ? '' : ' selected') + '>전체 과정</option>',
+    '    <option value="1"' + (VISIT.done ? ' selected' : '') + '>다녀온 것만</option>',
+    '  </select>',
+    '</div>',
+
+    (VISIT.rows.length === 0
+      ? '<div class="empty-state" style="padding:3rem"><p>조건에 맞는 과정이 없습니다.</p></div>'
+      : [
+        '<div class="table-container"><table class="data-table">',
+        '<thead><tr>',
+        '  <th class="th-mid">회사</th><th>고객사</th><th>과정명</th>',
+        '  <th>교육일정 <em class="th-sub">(하기로 한 날)</em></th>',
+        '  <th>다녀온 날</th><th class="th-mid">일수</th><th>메모</th><th class="th-mid"></th>',
+        '</tr></thead><tbody>',
+        VISIT.rows.map(visitRow).join(''),
+        '</tbody></table></div>'
+      ].join(''))
+  ].join('');
+
+  // 적던 중이었으면 그 자리를 다시 펴 준다
+  if (VISIT.editing) openVisitEditor(VISIT.editing, true);
+}
+
+/** 표의 한 줄 */
+function visitRow(r) {
+  const went = r.visit_days > 0;
+  return '<tr id="vrow-' + r.project_id + '" class="' + (went ? 'v-done' : '') + '">'
+    + '<td class="c-mid"><span class="co-tag' + ((r.company || '혜움컨설팅') === '그로우인' ? ' sub' : '') + '">'
+    +   esc(r.company || '혜움컨설팅') + '</span></td>'
+    + '<td>' + esc(r.client_name || '-') + '</td>'
+    + '<td style="font-weight:600">' + esc(r.course_name || '-') + '</td>'
+    + '<td class="c-mid" style="font-size:0.82rem; color:var(--text-secondary)">'
+    +   esc(schedText(r.plan_dates)) + (r.plan_days ? ' <span class="v-days">' + r.plan_days + '일</span>' : '') + '</td>'
+    + '<td class="c-mid" style="font-size:0.82rem">'
+    +   (went
+        ? '<b>' + esc(r.visit_type) + '</b> ' + esc(schedText(r.visit_dates))
+        : '<span style="color:var(--text-muted)">아직 안 적음</span>') + '</td>'
+    + '<td class="c-mid">' + (went ? '<b class="v-cnt">' + r.visit_days + '일</b>' : '-') + '</td>'
+    + '<td style="font-size:0.8rem; color:var(--text-secondary)">' + esc(r.note || '') + '</td>'
+    + '<td class="c-mid">'
+    +   '<button type="button" class="btn btn-outline btn-sm"'
+    +   ' onclick="openVisitEditor(' + r.project_id + ')">' + (went ? '고치기' : '적기') + '</button>'
+    + '</td></tr>';
+}
+
+/** 일정 배열을 사람이 읽는 글로 */
+function schedText(rows) {
+  const list = (Array.isArray(rows) ? rows : []).filter(function (r) { return r && r.s; });
+  if (!list.length) return '-';
+  return list.map(function (r) { return r.s === r.e || !r.e ? r.s : r.s + '~' + r.e; }).join(', ');
+}
+
+function setVisitFilter(key, v) { VISIT[key] = v; renderVisits(); }
+
+let visitSearchTimer = null;
+function onVisitSearch(v) {
+  VISIT.q = v;
+  clearTimeout(visitSearchTimer);
+  visitSearchTimer = setTimeout(function () {
+    renderVisits();
+    const el = document.getElementById('vs-q');
+    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  }, 350);
+}
+
+/**
+ * 한 과정의 교육진행을 적는 칸을 줄 아래에 펴 준다.
+ * @param keep 다시 그리면서 열어 둘 때 true (이미 넣어 둔 날짜를 지키려고)
+ */
+function openVisitEditor(projectId, keep) {
+  const r = VISIT.rows.filter(function (x) { return x.project_id === projectId; })[0];
+  if (!r) return;
+
+  // 다른 줄을 적고 있었으면 닫는다 (한 번에 하나만)
+  closeVisitEditor();
+  VISIT.editing = projectId;
+
+  if (!keep) {
+    // 교육일정 위젯이 보는 자리를 이 과정의 기록으로 채운다
+    const type = r.visit_type || r.plan_type || '당일';
+    State.schedules = { 당일: [], 기간: [], 차수: [] };
+    const got = (r.visit_dates || []).filter(function (x) { return x && x.s; });
+    State.schedules[type] = got.length ? got.map(function (x) { return { s: x.s, e: x.e || x.s }; })
+                                       : [{ s: '', e: '' }];
+    State.schedMode = {};
+    VISIT._type = type;
+    VISIT._note = r.note || '';
+  }
+
+  const type = VISIT._type || '당일';
+  const row = document.getElementById('vrow-' + projectId);
+  if (!row) return;
+
+  const tr = document.createElement('tr');
+  tr.id = 'vedit';
+  tr.innerHTML = '<td colspan="8">'
+    + '<div class="v-editor">'
+    + '  <div class="v-ed-head"><b>' + esc(r.course_name || '') + '</b>'
+    +      '<span class="v-ed-sub">' + esc(r.client_name || '') + '</span></div>'
+    + '  <div class="rline sched-line">'
+    + '    <div class="rf rf-pick"><span class="cap">일정 유형</span>'
+    + '      <select id="p-schedule-type" class="form-select" onchange="updateDateUI()">'
+    + ['당일', '기간', '차수'].map(function (x) {
+        return '<option value="' + x + '"' + (type === x ? ' selected' : '') + '>' + x + '</option>';
+      }).join('')
+    + '      </select>'
+    + '    </div>'
+    + '    <div class="sched-right">'
+    + '      <div id="sched-desc"></div>'
+    + '      <div id="sched-box" class="sched-box"></div>'
+    + '      <div id="sched-summary"></div>'
+    + '    </div>'
+    + '  </div>'
+    + '  <div class="v-ed-note">'
+    + '    <span class="cap">메모</span>'
+    + '    <input type="text" id="v-note" class="form-input" placeholder="예) 1차수는 담당자 대신 참석"'
+    +      ' value="' + esc(VISIT._note || '') + '" oninput="VISIT._note = this.value">'
+    + '  </div>'
+    + '  <div class="v-ed-act">'
+    + '    <button type="button" class="btn btn-ghost" onclick="closeVisitEditor(true)">취소</button>'
+    + (r.visit_days
+        ? '    <button type="button" class="btn btn-ghost" onclick="deleteVisit(' + projectId + ')">지우기</button>'
+        : '')
+    + '    <button type="button" class="btn btn-primary" onclick="saveVisit(' + projectId + ')">저장</button>'
+    + '  </div>'
+    + '</div></td>';
+  row.parentNode.insertBefore(tr, row.nextSibling);
+
+  renderSchedule();            // 과정 등록과 똑같은 날짜 고르는 칸
+  tr.scrollIntoView({ block: 'nearest' });
+}
+
+function closeVisitEditor(clear) {
+  const old = document.getElementById('vedit');
+  if (old) old.remove();
+  if (clear) VISIT.editing = null;
+}
+
+async function saveVisit(projectId) {
+  const type = scheduleType();
+  const dates = curDates(type).filter(function (r) { return r && r.s; })
+    .map(function (r) { return { s: r.s, e: r.e || r.s }; });
+  if (!dates.length) return showToast('다녀온 날을 하나 이상 골라주세요.', 'warning');
+
+  try {
+    const res = await API.put('/visits/' + projectId, {
+      schedule_type: type, schedule_dates: dates, note: VISIT._note || ''
+    });
+    showToast('교육진행을 저장했습니다. (' + res.days + '일)', 'success');
+    VISIT.editing = null;
+    renderVisits();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function deleteVisit(projectId) {
+  if (!confirm('적어 둔 교육진행을 지울까요?')) return;
+  try {
+    await API.delete('/visits/' + projectId);
+    showToast('지웠습니다.', 'success');
+    VISIT.editing = null;
+    renderVisits();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
 // ═══════════ 과정 목록 ═══════════
 const LIST = {
   company: '',

@@ -2541,3 +2541,15 @@ tr:hover .pv-eye, .instructor-card:hover .pv-eye { opacity: 0.85; }
 /* 수기작성에서 쓰지 않는 칸 — 잠겨 있다는 것이 보이게 */
 .ii-table .form-input.off { background: var(--bg-secondary); color: var(--text-muted); cursor: not-allowed; }
 .ii-mode:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── 교육진행 ── */
+.th-sub { font-style: normal; font-weight: 400; color: var(--text-muted); font-size: 0.72rem; }
+.v-days { color: var(--text-muted); }
+.v-cnt { color: var(--accent); }
+tr.v-done td { background: var(--success-bg); }
+.v-editor { padding: 1rem 1.1rem; background: var(--bg-secondary); border-radius: var(--radius-md); }
+.v-ed-head { font-size: 0.95rem; margin-bottom: 0.7rem; }
+.v-ed-head .v-ed-sub { color: var(--text-muted); font-size: 0.82rem; margin-left: 0.5rem; }
+.v-ed-note { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.9rem; }
+.v-ed-note .cap { font-size: 0.78rem; color: var(--text-muted); flex-shrink: 0; }
+.v-ed-act { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.9rem; }
