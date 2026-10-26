@@ -1377,11 +1377,13 @@ code {
 .c-red    { --c: #D92D20; }
 .c-green  { --c: #0E9F6E; }
 .c-purple { --c: #7C3AED; }
+.c-amber  { --c: #B45309; }   /* 교육진행 */
 :root[data-theme="dark"] .c-blue { --c: #4FA8E8; }
 :root[data-theme="dark"] .c-cyan { --c: #38BDF8; }
 :root[data-theme="dark"] .c-red { --c: #FF6B6B; }
 :root[data-theme="dark"] .c-green { --c: #2DD4A0; }
 :root[data-theme="dark"] .c-purple { --c: #A78BFA; }
+:root[data-theme="dark"] .c-amber { --c: #FBBF4C; }
 
 /* ── 카드 묶음 ── */
 .dash-grid { display: grid; gap: 1rem; margin-bottom: 1.25rem; }
@@ -2553,3 +2555,11 @@ tr.v-done td { background: var(--success-bg); }
 .v-ed-note { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.9rem; }
 .v-ed-note .cap { font-size: 0.78rem; color: var(--text-muted); flex-shrink: 0; }
 .v-ed-act { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.9rem; }
+
+/* ── 교육진행 — 표에서 바로 고치고 지우기 ── */
+.v-acts { display: inline-flex; gap: 0.3rem; white-space: nowrap; }
+.v-acts .v-del { color: var(--danger); }
+.v-acts .v-del:hover { background: var(--danger-bg); }
+/* 눌러서 넘어갈 수 있는 지표 카드 */
+.stat-card.click { cursor: pointer; transition: all var(--transition-fast); }
+.stat-card.click:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }

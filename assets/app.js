@@ -819,7 +819,9 @@ const ICON = {
   chart: '<path d="M4 20V4"/><path d="M4 20h16"/><rect x="7" y="12" width="3" height="5" rx=".6"/><rect x="12" y="8" width="3" height="9" rx=".6"/><rect x="17" y="14" width="3" height="3" rx=".6"/>',
   alert: '<path d="M12 4.5 21 19H3z"/><path d="M12 10v4"/><circle cx="12" cy="16.6" r=".6" fill="currentColor" stroke="none"/>',
   card: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M6.5 14.5h3"/>',
-  overhead: '<path d="M5 21V8.5L12 4l7 4.5V21"/><path d="M9.5 21v-5h5v5"/><path d="M3 21h18"/>'
+  overhead: '<path d="M5 21V8.5L12 4l7 4.5V21"/><path d="M9.5 21v-5h5v5"/><path d="M3 21h18"/>',
+  visit: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/>'
+    + '<path d="M8 3v4"/><path d="M16 3v4"/><path d="M8.5 14.5l2 2 4.5-4.5"/>'
 };
 
 function icon(name, size) {
@@ -842,8 +844,10 @@ async function renderDashboard() {
       return '<option value="' + esc(v) + '"' + (String(cur) === String(v) ? ' selected' : '') + '>' + esc(label) + '</option>';
     };
 
-    const card = function (cls, name, label, value, sub) {
-      return '<div class="stat-card ' + cls + '">'
+    // route 를 주면 눌러서 그 화면으로 갈 수 있는 카드가 된다
+    const card = function (cls, name, label, value, sub, route) {
+      return '<div class="stat-card ' + cls + (route ? ' click' : '') + '"'
+        + (route ? ' onclick="navigate(\'' + route + '\')" title="눌러서 자세히 보기"' : '') + '>'
         + '<div class="stat-ic">' + icon(name) + '</div>'
         + '<div class="stat-body">'
         +   '<div class="stat-label">' + label + '</div>'
@@ -962,6 +966,14 @@ async function renderDashboard() {
         S.total_sales ? '이익률 ' + S.margin.toFixed(1) + '%' : ''),
       card('c-purple', 'receivable', '미수금 <span>부가세 별도</span>', formatNumber(data.receivable.supply) + '<em>원</em>',
         '부가세 포함 ' + formatNumber(data.receivable.amount) + '원 · ' + data.receivable.count + '장'),
+      /*
+       * 교육진행 — 고른 기간에 실제로 현장에 다녀온 것.
+       * 누르면 교육진행 화면으로 간다.
+       */
+      card('c-amber', 'visit', '교육진행',
+        formatNumber((data.visits || {}).days || 0) + '<em>일</em>',
+        formatNumber((data.visits || {}).projects || 0) + '개 과정',
+        'visits'),
       '</div>',
 
       // ── 경고 ──
@@ -1271,8 +1283,8 @@ async function renderVisits() {
     '  <div class="subtitle">실제로 현장에 다녀온 날을 적어 둡니다. 과정에 적은 교육일정과 달라도 됩니다.</div></div></div>',
 
     '<div class="list-total">',
-    '  <span class="cnt"><b>' + formatNumber(t.done || 0) + '</b>건 다녀옴</span>',
-    '  <span class="it"><i>다녀온 날</i><b class="sales">' + formatNumber(t.days || 0) + '</b>일</span>',
+    '  <span class="cnt"><b>' + formatNumber(t.done || 0) + '</b>개 과정</span>',
+    '  <span class="it"><i>진행일수</i><b class="sales">' + formatNumber(t.days || 0) + '</b>일</span>',
     '  <span class="it"><i>전체 과정</i><b>' + formatNumber(t.projects || 0) + '</b>건</span>',
     '</div>',
 
@@ -1294,7 +1306,7 @@ async function renderVisits() {
         '<thead><tr>',
         '  <th class="th-mid">회사</th><th>고객사</th><th>과정명</th>',
         '  <th>교육일정 <em class="th-sub">(하기로 한 날)</em></th>',
-        '  <th>다녀온 날</th><th class="th-mid">일수</th><th>메모</th><th class="th-mid"></th>',
+        '  <th>다녀온 날</th><th class="th-mid">진행일수</th><th>메모</th><th class="th-mid"></th>',
         '</tr></thead><tbody>',
         VISIT.rows.map(visitRow).join(''),
         '</tbody></table></div>'
@@ -1321,10 +1333,19 @@ function visitRow(r) {
         : '<span style="color:var(--text-muted)">아직 안 적음</span>') + '</td>'
     + '<td class="c-mid">' + (went ? '<b class="v-cnt">' + r.visit_days + '일</b>' : '-') + '</td>'
     + '<td style="font-size:0.8rem; color:var(--text-secondary)">' + esc(r.note || '') + '</td>'
-    + '<td class="c-mid">'
+    /*
+     * 고치기·지우기를 표에서 바로 누를 수 있게 둔다.
+     * 전에는 적는 칸을 펴야만 지우기가 보여서, 지울 수 있는 줄 모르셨다.
+     */
+    + '<td class="c-mid"><div class="v-acts">'
     +   '<button type="button" class="btn btn-outline btn-sm"'
-    +   ' onclick="openVisitEditor(' + r.project_id + ')">' + (went ? '고치기' : '적기') + '</button>'
-    + '</td></tr>';
+    +   ' onclick="openVisitEditor(' + r.project_id + ')">' + (went ? '✎ 고치기' : '적기') + '</button>'
+    +   (went
+        ? '<button type="button" class="btn btn-ghost btn-sm v-del"'
+          + ' title="적어 둔 교육진행을 지웁니다"'
+          + ' onclick="deleteVisit(' + r.project_id + ')">✖ 지우기</button>'
+        : '')
+    + '</div></td></tr>';
 }
 
 /** 일정 배열을 사람이 읽는 글로 */
@@ -1437,7 +1458,11 @@ async function saveVisit(projectId) {
 }
 
 async function deleteVisit(projectId) {
-  if (!confirm('적어 둔 교육진행을 지울까요?')) return;
+  const r = VISIT.rows.filter(function (x) { return x.project_id === projectId; })[0];
+  const what = r
+    ? '「' + (r.course_name || '') + '」\n' + r.visit_type + ' · ' + r.visit_days + '일\n\n'
+    : '';
+  if (!confirm(what + '적어 둔 교육진행을 지울까요?\n(과정 자체는 지워지지 않습니다)')) return;
   try {
     await API.delete('/visits/' + projectId);
     showToast('지웠습니다.', 'success');
