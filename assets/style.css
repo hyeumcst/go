@@ -2311,27 +2311,20 @@ code {
 
 /* 항목 표 열 너비 (규격 뺀 뒤) */
 /*
- * 칸 너비 — 대표님 지시 (2026-10-27)
- *   비고가 너무 길고 항목이 너무 좁다 → 비고를 반으로 줄이고
- *   남는 자리를 항목이 가져간다.
+ * 칸 너비 — 항목과 비고를 같은 넓이로. (대표님 지시 2026-10-27)
  *
- * 그래서 항목만 너비를 안 적는다 — 남는 자리를 혼자 갖는다.
- * 화면이 넓어지면 항목이 넓어지고, 좁아지면 항목이 먼저 줄어든다
- * (긴 과정명이 들어가는 칸이라 넓을수록 좋다).
- *
- * 1440px 화면 기준 — 항목 313px · 비고 98px (전에는 220 · 197)
+ * 어느 칸의 너비를 비워 두면 그 칸이 남는 자리를 혼자 갖고,
+ * 화면이 좁아지면 혼자 다 줄어든다. 두 번 그렇게 어긋났다.
+ * 그래서 모든 칸을 비율로 못박고 table-layout: fixed 로 둔다.
+ * 어느 화면 크기에서도 비율이 그대로다.
  */
-/*
- * 1번(항목)은 너비를 안 적어 남는 자리를 가져간다.
- * 다만 화면이 좁아지면 혼자 다 줄어 34px 까지 쪼그라들어서
- * 최소 너비를 줬다 (비고에 준 것과 같은 까닭).
- */
-.ii-table th:nth-child(1) { min-width: 10rem; }
-.ii-table th:nth-child(2) { width: 4.5rem; }     /* 수량 */
+.ii-table { table-layout: fixed; }
+.ii-table th:nth-child(1) { width: 22.5%; }   /* 항목 */
+.ii-table th:nth-child(2) { width: 6%; }      /* 수량 */
 .ii-table th:nth-child(3), .ii-table th:nth-child(4),
-.ii-table th:nth-child(5), .ii-table th:nth-child(6) { width: 8.25rem; }
-.ii-table th:nth-child(7) { width: 6.125rem; min-width: 5rem; }   /* 비고 */
-.ii-table th:nth-child(8) { width: 1.8rem; }     /* 지우기 */
+.ii-table th:nth-child(5), .ii-table th:nth-child(6) { width: 11.5%; }
+.ii-table th:nth-child(7) { width: 22.5%; }   /* 비고 — 항목과 같다 */
+.ii-table th:nth-child(8) { width: 3%; }     /* 지우기 */
 
 /* 3) 머리줄 — 항목 추가가 먼저, 매출에서 가져오기가 오른쪽 */
 .ii-head .btn:first-of-type { margin-left: auto; }
