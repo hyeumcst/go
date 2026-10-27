@@ -1828,16 +1828,7 @@ async function renderProjectForm(projectId = null) {
       State.vatMode = currentProject.vat_mode || '별도';
       State.discountBase = currentProject.discount_base || '공급가액';
       State.invoices = (res.invoices || []).map(function (x) {
-        const mode = x.vat_mode || State.vatMode;
-        const amount = (mode === '포함' ? x.total_amount : x.supply_amount) + (x.discount || 0);
-        return {
-          _id: Math.random().toString(36).substr(2, 9),
-          amount: amount,
-          discount: x.discount || 0,
-          vat_mode: x.vat_mode || '',
-          is_manual: true,
-          issue_date: x.issue_date || '', paid_date: x.paid_date || '', note: x.note || ''
-        };
+        return invoiceFromServer(x, State.vatMode);
       });
     } catch (err) {
       showToast('데이터를 불러오지 못했습니다.', 'error');
@@ -2544,6 +2535,37 @@ function scheduleLabel(ranges) {
 function currentCompany() {
   const el = document.getElementById('p-company');
   return (el && el.value) || DEFAULT_COMPANY;
+}
+
+/**
+ * 서버에서 받은 계산서 한 장을 화면이 쓰는 꼴로 바꾼다.
+ *
+ * ⚠ 불러온 칸을 「그대로」 지켜야 한다.
+ *   전에는 일곱 칸만 베껴 쓰고 나머지를 버렸다. 그래서 과정을 다시 열면
+ *   항목(품목) · 받는 사람 · 발행회사 · 청구/영수 · 결제금액이 빈칸으로
+ *   보였고, 그대로 저장하면 진짜로 지워졌다.
+ *   계산서 번호(id)도 잃어서 [발행요청] 단추가 늘 잠겨 있었다.
+ *   (대표님이 겪으심 2026-10-27)
+ *
+ * 바꿔야 하는 것은 금액뿐이다 — 저장될 때 공급가액·합계로 풀려서
+ * 들어오므로, 적어 넣었던 입력값(amount)으로 되돌린다.
+ */
+function invoiceFromServer(x, vatMode) {
+  const mode = x.vat_mode || vatMode || '별도';
+  const amount = (mode === '포함' ? x.total_amount : x.supply_amount) + (x.discount || 0);
+
+  const o = Object.assign({}, x);
+  o._id = Math.random().toString(36).substr(2, 9);
+  o.amount = amount;
+  o.discount = x.discount || 0;
+  o.vat_mode = x.vat_mode || '';
+  o.is_manual = true;
+  o.issue_date = x.issue_date || '';
+  o.paid_date = x.paid_date || '';
+  o.note = x.note || '';
+  o.items = Array.isArray(x.items) ? x.items : [];
+  o.recipients = Array.isArray(x.recipients) ? x.recipients : [];
+  return o;
 }
 
 function newInvoice(amount, manual) {
