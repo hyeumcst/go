@@ -528,6 +528,75 @@ function afterProjectRoute() {
   return canSeeRoute(API.getUser(), 'projects') ? 'projects' : 'dashboard';
 }
 
+/* ═══════════════════════════════════════════════════════════
+   미리 받아 두기
+
+   구글에 한 번 다녀오는 데 1.8초쯤 걸린다. 자료를 하나도 안 읽는
+   요청을 재 봐도 그렇다 — 앱스스크립트 자체가 느린 것이라 서버를
+   아무리 손봐도 줄지 않는다. (2026-10-27 에 다섯 번 재어 확인)
+
+   그래서 「누른 뒤에 받는」 것을 그만둔다.
+     · 메뉴에 마우스를 올리면 그때 미리 받아 둔다
+       (올리고 누르기까지 보통 0.3~0.8초가 걸리므로 그만큼 번다)
+     · 첫 화면을 그린 뒤 한가할 때도 몇 개 받아 둔다
+
+   받아 둔 것은 API 가 기억해 두므로(1분), 누르면 서버에 다시
+   묻지 않고 바로 뜬다. 자료가 달라지는 일은 없다 — 평소에 받던
+   것과 똑같은 것을 조금 일찍 받아 둘 뿐이다.
+   ═══════════════════════════════════════════════════════════ */
+
+const PREFETCH = { busy: {}, timer: null };
+
+/** 그 화면이 쓰는 자료를 미리 받아 둔다 */
+function prefetchRoute(route) {
+  if (!route || PREFETCH.busy[route]) return;
+  if (!canSeeRoute(API.getUser(), route)) return;
+
+  const go = {
+    dashboard: function () {
+      return API.getDashboard({
+        year: DASH.year, month: DASH.month, manager: DASH.manager,
+        company: DASH.company, basis: DASH.basis
+      });
+    },
+    analytics: function () { return API.getAnalytics(AN); },
+    visits: function () { return API.get('/visits' + API.qs({ q: VISIT.q, done: VISIT.done })); },
+    projects: function () {
+      return API.getProjects({
+        q: LIST.q, month: LIST.month, manager: LIST.manager,
+        type: LIST.type, sort: LIST.sort, company: LIST.company,
+        missing_expense: LIST.missing_expense
+      });
+    },
+    tax: function () { return API.getInvoices(TAX); }
+  }[route];
+  if (!go) return;
+
+  PREFETCH.busy[route] = true;
+  // 기억이 1분이라, 조금 일찍 풀어 두어 다음 기회에 또 받아 둘 수 있게 한다
+  setTimeout(function () { delete PREFETCH.busy[route]; }, 50000);
+
+  try {
+    const p = go();
+    if (p && p.catch) p.catch(function () { delete PREFETCH.busy[route]; });
+  } catch (e) { delete PREFETCH.busy[route]; }
+}
+
+/** 마우스를 잠깐 올려 두면 받아 둔다 (스쳐 지나갈 때는 받지 않는다) */
+function prefetchOnHover(route) {
+  clearTimeout(PREFETCH.timer);
+  PREFETCH.timer = setTimeout(function () { prefetchRoute(route); }, 120);
+}
+function prefetchCancel() { clearTimeout(PREFETCH.timer); }
+
+/** 첫 화면을 그린 뒤 한가할 때 — 하나씩 띄엄띄엄 받아 둔다 */
+function prefetchIdle() {
+  const order = ['projects', 'tax', 'visits', 'analytics'];
+  order.forEach(function (r, i) {
+    setTimeout(function () { prefetchRoute(r); }, 2500 + i * 1500);
+  });
+}
+
 // --- 앱 초기화 ---
 function initApp() {
   const user = API.getUser();
@@ -618,6 +687,10 @@ function initApp() {
 
   // 과정 등록 큰 버튼도 같은 방식으로 움직인다
   document.querySelectorAll('.nav-item, .nav-cta').forEach(el => {
+    /* 마우스를 올려 두면 미리 받아 둔다 — 누를 때 기다리지 않게 */
+    el.addEventListener('mouseenter', () => prefetchOnHover(el.dataset.route));
+    el.addEventListener('mouseleave', prefetchCancel);
+
     el.addEventListener('click', (e) => {
       document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
       if (e.currentTarget.classList.contains('nav-item')) e.currentTarget.classList.add('active');
@@ -645,6 +718,9 @@ function initApp() {
   });
 
   watchBrandSub();
+
+  // 첫 화면을 그린 뒤 한가할 때 다른 메뉴 자료를 미리 받아 둔다
+  prefetchIdle();
 
   onId('btn-logout', 'click', () => {
     if (confirm('로그아웃 하시겠습니까?')) {
