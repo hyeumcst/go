@@ -2706,18 +2706,46 @@ tr.v-done td { background: var(--success-bg); }
 }
 .undo-bar .x:hover { opacity: 1; }
 
-/* ── 알림은 위 가운데로 ──
+/* ── 알림은 화면 한가운데에 크게 ──
    오른쪽 위에 띄웠더니 [취소][삭제][저장] 단추와 겹쳐 잘 안 보였다.
-   가운데로 옮긴다. 되돌리기 띠는 아래 가운데라 서로 안 겹친다.
-   (대표님 지시 2026-10-27) */
+   위 가운데로 옮겼는데도 작아서 지나치기 쉬웠다.
+   한가운데에 두 배 글씨로 띄운다. (대표님 지시 2026-10-27)
+
+   3초 뒤 저절로 사라지므로 화면을 오래 가리지 않는다.
+   pointer-events 를 꺼 두어, 떠 있는 동안에도 뒤의 칸을 누를 수 있다.
+
+   빨간 알림(오류)도 같이 커진다. 잘됐다는 말만 크고 잘못됐다는 말이
+   작으면 정작 봐야 할 것을 놓친다. */
 .toast-container {
-  top: 1.25rem; right: auto; left: 50%; transform: translateX(-50%);
+  top: 50%; right: auto; left: 50%; transform: translate(-50%, -50%);
   align-items: center; pointer-events: none;
+  width: max-content; max-width: min(90vw, 44rem);
 }
-.toast { pointer-events: auto; animation: slideInDown 0.25s ease-out; }
-@keyframes slideInDown {
-  from { opacity: 0; transform: translateY(-14px); }
-  to   { opacity: 1; transform: translateY(0); }
+.toast {
+  /* 한가운데 크게 떠 있으므로 누르는 것을 가로채면 안 된다.
+     알림에는 누를 것이 없으니 그대로 통과시킨다 — 떠 있는 3초 동안에도
+     뒤의 칸과 단추를 그대로 쓸 수 있다. */
+  pointer-events: none;
+  /* 0.85rem 이던 것의 두 배. 좁은 화면에서는 조금 줄어든다 */
+  font-size: clamp(1.15rem, 4.2vw, 1.7rem);
+  font-weight: 700;
+  line-height: 1.45;
+  padding: 1.5rem 2.25rem;
+  gap: 0.85rem;
+  min-width: 0;
+  border-radius: 1rem;
+  border-width: 2px;
+  text-align: center;
+  /* 뒤 화면과 또렷이 갈리도록 그림자를 깊게 */
+  box-shadow: 0 1.5rem 3rem rgba(0, 0, 0, 0.28), 0 0 0 0.6rem rgba(0, 0, 0, 0.06);
+  animation: toastPop 0.22s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.toast .icon { font-size: 1.3em; }
+
+/* 작게 커졌다가 제자리로 — 눈이 저절로 따라간다 */
+@keyframes toastPop {
+  from { opacity: 0; transform: scale(0.82); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 /* ── 받는 사람 1 · 2 ──
