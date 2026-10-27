@@ -2783,11 +2783,11 @@ function removeInvoice(id) {
   if (at < 0) return;
   const gone = State.invoices[at];
   State.invoices.splice(at, 1);
-  renderInvoices();
   offerUndo('세금계산서 ' + (at + 1) + '장째', function () {
     State.invoices.splice(at, 0, gone);
     renderInvoices();
   });
+  renderInvoices();
 }
 
 function updateInvoice(id, field, value) {
@@ -2898,11 +2898,11 @@ function removeSaleItem(id) {
   if (at < 0) return;
   const gone = State.saleItems[at];
   State.saleItems.splice(at, 1);
-  renderSales();
   offerUndo('매출 「' + (gone.name || gone.category || '줄') + '」', function () {
     State.saleItems.splice(at, 0, gone);
     renderSales();
   });
+  renderSales();
 }
 
 function updateSale(id, field, value) {
@@ -3222,13 +3222,13 @@ function removeExpenseItem(id) {
   if (at < 0) return;
   const gone = State.expenseItems[at];
   State.expenseItems.splice(at, 1);
-  renderExpenseItems();
-  calcAllExpenses();
   offerUndo('매입 「' + (gone.name || gone.category || '줄') + '」', function () {
     State.expenseItems.splice(at, 0, gone);
     renderExpenseItems();
     calcAllExpenses();
   });
+  renderExpenseItems();
+  calcAllExpenses();
 }
 
 function updateExp(id, field, value) {
@@ -6472,13 +6472,13 @@ function removeInvItem(id, i) {
   if (invItems(it).length <= 1) return showToast('항목은 한 줄은 있어야 합니다.', 'warning');
   const gone = it.items[i];
   it.items.splice(i, 1);
-  syncInvAmount(it);
-  renderInvoices();
   offerUndo('계산서 항목 「' + ((gone && gone.name) || '줄') + '」', function () {
     it.items.splice(i, 0, gone);
     syncInvAmount(it);
     renderInvoices();
   });
+  syncInvAmount(it);
+  renderInvoices();
 }
 
 function updateInvItem(id, i, field, value) {

@@ -2681,7 +2681,9 @@ tr.v-done td { background: var(--success-bg); }
 
 /* ── 되돌리기 띠 ── */
 .undo-bar {
-  position: fixed; left: 50%; bottom: 1.25rem; transform: translateX(-50%) translateY(1rem);
+  /* 화면 맨 아래에 뒀더니 못 보고 지나치셨다 — 알림과 같은 위쪽으로 올린다.
+     알림(위 1.25rem)보다 조금 아래에 두어 둘이 겹치지 않게 한다. */
+  position: fixed; left: 50%; top: 4.75rem; transform: translateX(-50%) translateY(-0.5rem);
   display: none; align-items: center; gap: 0.75rem;
   padding: 0.7rem 0.8rem 0.7rem 1.1rem;
   background: var(--text-primary); color: var(--bg-card);
