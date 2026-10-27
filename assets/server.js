@@ -1752,10 +1752,31 @@ function invoiceRequestDropFor_(projectId) {
 function 권한열기() {
   var left = MailApp.getRemainingDailyQuota();
   var to = invoiceRequestTo_();
-  var msg = '메일 권한이 열려 있습니다.\n'
-    + '  오늘 더 보낼 수 있는 메일 : ' + left + '통\n'
-    + '  발행요청을 받을 사람       : ' + to.join(', ') + '\n\n'
-    + '이제 과정 등록 화면의 계산서에서 [발행요청] 을 누르시면 됩니다.';
+
+  /*
+   * 바깥에 물어볼 권한도 여기서 같이 받는다.
+   *
+   * 자료를 파이어베이스로 옮긴 뒤, 화면은 파이어베이스로 로그인한다.
+   * 발행요청 메일은 여기 남으므로, 「이 사람이 진짜 맞나」를 구글에게
+   * 물어봐야 한다 (FbAuth.gs). 그러려면 바깥에 물어볼 권한이 필요하다.
+   *
+   * 권한이 늘면 대표님이 한 번 허용해 주셔야 한다. 두 번 왔다 갔다 하지
+   * 않도록 메일 권한과 함께 한 번에 받는다.
+   */
+  var net = '안 열림';
+  try {
+    var r = UrlFetchApp.fetch('https://www.googleapis.com/generate_204',
+      { muteHttpExceptions: true });
+    net = r.getResponseCode() === 204 ? '열림' : '열림 (' + r.getResponseCode() + ')';
+  } catch (e) {
+    net = '안 열림 — ' + e.message;
+  }
+
+  var msg = '권한을 확인했습니다.\n'
+    + '  메일 보내기        : 열림 (오늘 ' + left + '통 더 보낼 수 있습니다)\n'
+    + '  바깥에 물어보기     : ' + net + '\n'
+    + '  발행요청 받을 사람  : ' + to.join(', ') + '\n\n'
+    + '둘 다 「열림」이면 다 된 것입니다.';
   Logger.log(msg);
   return msg;
 }
@@ -5895,7 +5916,16 @@ function apiCall(method, path, body, query, token) {
       return { ok: true, data: doLogin(body.username, body.password, body.site) };
     }
 
-    var u = userFromToken(token);
+    /*
+     * 표가 두 가지다.
+     *   파이어베이스 표 — 자료를 옮긴 뒤로 화면이 이것을 보낸다.
+     *                    진짜인지는 구글에게 물어본다 (FbAuth.gs)
+     *   예전 표        — 되돌리기(USE_FIREBASE: false) 했을 때를 위해 남겨 둔다
+     *
+     * 둘 다 받아야 한다. 어느 쪽으로 돌려도 발행요청 메일과 정산자료가
+     * 되어야 하기 때문이다.
+     */
+    var u = isFirebaseToken_(token) ? userFromFirebase_(token) : userFromToken(token);
     return { ok: true, data: route_(u, M, P, body, query) };
   } catch (err) {
     var msg = String((err && err.message) || err);
@@ -6626,6 +6656,21 @@ async function fbHandle(method, path, data, query) {
   return out;
 }
 
+/**
+ * 앱스스크립트에 보낼 「진짜 표」를 받아 온다.
+ *
+ * 파이어베이스가 만들어 주는 표로, 한 시간 뒤 저절로 쓸모없어진다.
+ * 앱스스크립트는 이 표가 진짜인지 구글에게 물어본다 (FbAuth.gs).
+ *
+ * 발행요청 메일과 정산자료를 받을 때만 쓰인다. 나머지는 인터넷에 안 나간다.
+ */
+async function fbIdToken() {
+  if (!fbReady()) throw new Error('파이어베이스에 연결할 수 없습니다.');
+  const cur = FBAUTH.currentUser;
+  if (!cur) throw new Error('로그인이 필요합니다.');
+  return cur.getIdToken();
+}
+
 
 /* ═════ 밖으로 내보내는 것 ═════ */
 window.fbLogin = fbLogin;
@@ -6637,6 +6682,7 @@ window.fbStaysOnAppsScript = fbStaysOnAppsScript;
 window.fbReady = fbReady;
 window.fbUser = fbUser;
 window.fbForget = fbForget;
+window.fbIdToken = fbIdToken;
 
 /* 시험할 때 쓰는 손잡이 */
 window.fbAuth = function () { return FBAUTH; };

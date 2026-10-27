@@ -89,12 +89,26 @@ const API = {
       return v;
     }
 
+    /*
+     * 여기까지 왔다는 것은 앱스스크립트가 해야 하는 일이라는 뜻이다
+     * (발행요청 메일 · 정산자료 · 강사명단).
+     *
+     * 파이어베이스로 로그인했으면 들고 있는 표가 'firebase' 라는 글자뿐이라
+     * 앱스스크립트가 알아보지 못한다. 그래서 여기서 진짜 표를 받아 보낸다.
+     * 앱스스크립트는 그 표가 진짜인지 구글에게 물어본다 (FbAuth.gs).
+     */
+    let token = this.getToken();
+    if (typeof FB !== 'undefined' && FB.USE_FIREBASE && typeof fbIdToken === 'function') {
+      try { token = await fbIdToken(); }
+      catch (e) { throw new Error('로그인이 풀렸습니다. 다시 로그인해주세요.'); }
+    }
+
     let res;
     try {
       res = await fetch(APP_URL, {
         method: 'POST',
         body: JSON.stringify({
-          method: method, path: s.path, data: data, query: s.query, token: this.getToken()
+          method: method, path: s.path, data: data, query: s.query, token: token
         })
       });
     } catch (e) {
