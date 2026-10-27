@@ -2671,3 +2671,34 @@ tr.v-done td { background: var(--success-bg); }
   border-color: color-mix(in srgb, var(--sec) 22%, transparent);
 }
 .form-section .calc-panel .line.sum { border-top-color: color-mix(in srgb, var(--sec) 22%, transparent); }
+
+/* ── 비고는 줄 아래에 따로 ──
+   한 줄에 칸이 많아 비고가 6rem 까지 눌렸다. 적을 자리가 안 났다.
+   order 로 도구(수기·삭제)를 먼저 두고, 비고는 아래 줄을 통째로 쓴다.
+   (대표님 지시 2026-10-27) */
+.rline .rf-note { flex: 1 1 100%; min-width: 0; order: 99; }
+.rline .rtools { order: 98; }
+
+/* ── 되돌리기 띠 ── */
+.undo-bar {
+  position: fixed; left: 50%; bottom: 1.25rem; transform: translateX(-50%) translateY(1rem);
+  display: none; align-items: center; gap: 0.75rem;
+  padding: 0.7rem 0.8rem 0.7rem 1.1rem;
+  background: var(--text-primary); color: var(--bg-card);
+  border-radius: 999px; box-shadow: var(--shadow-md);
+  font-size: 0.85rem; z-index: 2000;
+  opacity: 0; transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+.undo-bar.on { display: flex; opacity: 1; transform: translateX(-50%) translateY(0); }
+.undo-bar .t { white-space: nowrap; }
+.undo-bar .go {
+  border: none; background: var(--accent); color: #fff;
+  padding: 0.35rem 0.8rem; border-radius: 999px;
+  font-family: inherit; font-size: 0.82rem; font-weight: 700; cursor: pointer;
+}
+.undo-bar .go:hover { filter: brightness(1.1); }
+.undo-bar .x {
+  border: none; background: transparent; color: var(--bg-card);
+  opacity: 0.6; cursor: pointer; font-size: 0.9rem; padding: 0 0.2rem;
+}
+.undo-bar .x:hover { opacity: 1; }

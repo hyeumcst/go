@@ -597,6 +597,53 @@ function prefetchIdle() {
   });
 }
 
+/* ═══════════════════════════════════════════════════════════
+   되돌리기 — 실수로 지웠을 때
+
+   매출·매입·계산서 줄은 ✖ 한 번에 사라진다. 물어보지 않는 것이
+   빠르고 좋지만, 잘못 누르면 적어 둔 것이 날아간다.
+   그래서 지운 뒤 잠깐 「되돌리기」를 띄운다.
+
+   저장 전이라면 되돌리면 그대로 돌아온다 (지웠던 자리에 그대로).
+   (대표님 지시 2026-10-27)
+   ═══════════════════════════════════════════════════════════ */
+
+const UNDO = { restore: null, timer: null };
+
+/** 지운 것을 되돌릴 기회를 잠깐 준다 */
+function offerUndo(what, restore) {
+  UNDO.restore = restore;
+  clearTimeout(UNDO.timer);
+
+  let bar = document.getElementById('undo-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'undo-bar';
+    bar.className = 'undo-bar';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = '<span class="t">' + esc(what) + ' 지웠습니다.</span>'
+    + '<button type="button" class="go" onclick="doUndo()">↩ 되돌리기</button>'
+    + '<button type="button" class="x" title="닫기" onclick="hideUndo()">✕</button>';
+  bar.classList.add('on');
+
+  // 너무 오래 두면 무엇을 되돌리는지 잊는다
+  UNDO.timer = setTimeout(hideUndo, 12000);
+}
+
+function doUndo() {
+  const f = UNDO.restore;
+  hideUndo();
+  if (f) { try { f(); showToast('되돌렸습니다.', 'success'); } catch (e) {} }
+}
+
+function hideUndo() {
+  clearTimeout(UNDO.timer);
+  UNDO.restore = null;
+  const bar = document.getElementById('undo-bar');
+  if (bar) bar.classList.remove('on');
+}
+
 // --- 앱 초기화 ---
 function initApp() {
   const user = API.getUser();
@@ -2732,8 +2779,15 @@ function addInvoice() {
 
 function removeInvoice(id) {
   if (State.invoices.length <= 1) return;
-  State.invoices = State.invoices.filter(function (x) { return x._id !== id; });
+  const at = State.invoices.findIndex(function (x) { return x._id === id; });
+  if (at < 0) return;
+  const gone = State.invoices[at];
+  State.invoices.splice(at, 1);
   renderInvoices();
+  offerUndo('세금계산서 ' + (at + 1) + '장째', function () {
+    State.invoices.splice(at, 0, gone);
+    renderInvoices();
+  });
 }
 
 function updateInvoice(id, field, value) {
@@ -2840,8 +2894,15 @@ function addSaleItem(category, subcategory) {
 }
 
 function removeSaleItem(id) {
-  State.saleItems = State.saleItems.filter(x => x._id !== id);
+  const at = State.saleItems.findIndex(x => x._id === id);
+  if (at < 0) return;
+  const gone = State.saleItems[at];
+  State.saleItems.splice(at, 1);
   renderSales();
+  offerUndo('매출 「' + (gone.name || gone.category || '줄') + '」', function () {
+    State.saleItems.splice(at, 0, gone);
+    renderSales();
+  });
 }
 
 function updateSale(id, field, value) {
@@ -3157,9 +3218,17 @@ function addExpenseItem(category) {
 }
 
 function removeExpenseItem(id) {
-  State.expenseItems = State.expenseItems.filter(e => e._id !== id);
+  const at = State.expenseItems.findIndex(e => e._id === id);
+  if (at < 0) return;
+  const gone = State.expenseItems[at];
+  State.expenseItems.splice(at, 1);
   renderExpenseItems();
   calcAllExpenses();
+  offerUndo('매입 「' + (gone.name || gone.category || '줄') + '」', function () {
+    State.expenseItems.splice(at, 0, gone);
+    renderExpenseItems();
+    calcAllExpenses();
+  });
 }
 
 function updateExp(id, field, value) {
@@ -6401,9 +6470,15 @@ function removeInvItem(id, i) {
   const it = State.invoices.find(function (x) { return x._id === id; });
   if (!it) return;
   if (invItems(it).length <= 1) return showToast('항목은 한 줄은 있어야 합니다.', 'warning');
+  const gone = it.items[i];
   it.items.splice(i, 1);
   syncInvAmount(it);
   renderInvoices();
+  offerUndo('계산서 항목 「' + ((gone && gone.name) || '줄') + '」', function () {
+    it.items.splice(i, 0, gone);
+    syncInvAmount(it);
+    renderInvoices();
+  });
 }
 
 function updateInvItem(id, i, field, value) {
