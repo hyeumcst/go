@@ -4179,7 +4179,13 @@ function renderAutoList(container, items, query, onClick, showSub = false) {
     if (!String(query || '').trim()) { container.classList.remove('show'); return; }
     const div = document.createElement('div');
     div.className = 'autocomplete-item create-new';
-    div.innerText = `"${query}" (신규 등록)`;
+    /*
+     * 관리자가 아니면 「신규 등록」이라고 하면 안 된다 — 명부를 못 고치니
+     * 지키지 못할 약속이 된다. (대표님 지시 2026-10-27)
+     */
+    div.innerText = API.isAdmin()
+      ? `"${query}" (신규 등록)`
+      : `"${query}" (명부에 없음 — 이대로 쓰기)`;
     div.onclick = () => { onClick({ name: query }); };
     container.appendChild(div);
   } else {
@@ -4232,6 +4238,55 @@ function reopenNameList(inputEl, itemId, category) {
   }, 30);
 }
 
+/**
+ * 목록에 없는 이름을 고르면 명부에 올린다.
+ *
+ * 전에는 「신규 등록」이라고 적어 두고도 실제로는 이름만 그 줄에
+ * 적어 넣었다. 그래서 등록되었다는 말도 없고, 그 칸을 다시 눌러도
+ * 명부에 없으니 계속 「신규 등록」이 떴다. (대표님 지시 2026-10-27)
+ *
+ * 명부에 올리는 것은 관리자만 할 수 있다 (서버도 보안 규칙도 그렇다).
+ * 직원에게는 올리지 못한다고 솔직히 말하고, 이름은 그 줄에 그대로 쓴다.
+ * 과정은 저장되고, 나중에 관리자가 명부에 올리면 된다.
+ *
+ * @returns {Object|null} 쓸 사람/업체. 그만두면 null
+ */
+async function registerIfNew_(item, what) {
+  if (item.id) return item;                 // 이미 명부에 있는 사람
+
+  const name = String(item.name || '').trim();
+  if (!name) return null;
+
+  if (!API.isAdmin()) {
+    // 직원은 명부를 못 고친다. 이름만 적어 두고 간다 — 과정은 저장된다.
+    showToast('「' + name + '」은(는) ' + what + ' 명부에 없습니다. '
+      + '이름은 그대로 쓰이고, 명부 등록은 관리자가 합니다.', 'warning');
+    return { name: name };
+  }
+
+  try {
+    if (what === '강사') {
+      const r = await API.createInstructor({ name: name });
+      showToast('새 강사 「' + name + '」을(를) 명부에 올렸습니다.', 'success');
+      return { id: r.id, name: name };
+    }
+    const r = await API.createPartner({ name: name });
+    showToast('새 협력사 「' + name + '」을(를) 명부에 올렸습니다.', 'success');
+    return { id: r.id, name: name };
+  } catch (e) {
+    /*
+     * 이미 있다고 하면 그건 탈이 아니다 — 찾기가 못 찾았을 뿐이다.
+     * 이름은 그대로 쓰게 두고 지나간다.
+     */
+    if (/이미/.test(e.message || '')) {
+      showToast('「' + name + '」은(는) 이미 ' + what + ' 명부에 있습니다.', 'info');
+      return { name: name };
+    }
+    showToast(e.message, 'error');
+    return null;
+  }
+}
+
 async function nameSearch_(inputEl, itemId, category) {
   {
     const q = inputEl.value.trim();
@@ -4242,29 +4297,33 @@ async function nameSearch_(inputEl, itemId, category) {
     try {
       if (category === '강의') {
         const res = await API.searchInstructors(q);
-        renderAutoList(listEl, res.instructors, q, function (item) {
+        renderAutoList(listEl, res.instructors, q, async function (item) {
+          listEl.classList.remove('show');
+          const picked = await registerIfNew_(item, '강사');
+          if (!picked) return;
           const t = State.expenseItems.find(function (x) { return x._id === itemId; });
           if (t) {
-            t.instructor_id = item.id;
-            t.name = item.name;
-            if (item.affiliation) t.affiliation = item.affiliation;
-            if (item.default_tax_type) t.tax_type = item.default_tax_type;
-            if (item.default_unit_price && !t.is_manual) t.unit_price = item.default_unit_price;
+            t.instructor_id = picked.id || null;
+            t.name = picked.name;
+            if (picked.affiliation) t.affiliation = picked.affiliation;
+            if (picked.default_tax_type) t.tax_type = picked.default_tax_type;
+            if (picked.default_unit_price && !t.is_manual) t.unit_price = picked.default_unit_price;
             if (!t.unit) t.unit = '시간';
           }
-          listEl.classList.remove('show');
           renderExpenseItems();
         }, true);
       } else {
         const res = await API.searchPartners(q);
-        renderAutoList(listEl, res.partners, q, function (item) {
+        renderAutoList(listEl, res.partners, q, async function (item) {
+          listEl.classList.remove('show');
+          const picked = await registerIfNew_(item, '협력사');
+          if (!picked) return;
           const t = State.expenseItems.find(function (x) { return x._id === itemId; });
           if (t) {
-            t.name = item.name;
+            t.name = picked.name;
             t.instructor_id = null;
-            if (item.default_tax_type) t.tax_type = item.default_tax_type;
+            if (picked.default_tax_type) t.tax_type = picked.default_tax_type;
           }
-          listEl.classList.remove('show');
           renderExpenseItems();
         }, true);
       }
