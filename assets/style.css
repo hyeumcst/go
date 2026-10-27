@@ -2702,3 +2702,17 @@ tr.v-done td { background: var(--success-bg); }
   opacity: 0.6; cursor: pointer; font-size: 0.9rem; padding: 0 0.2rem;
 }
 .undo-bar .x:hover { opacity: 1; }
+
+/* ── 알림은 위 가운데로 ──
+   오른쪽 위에 띄웠더니 [취소][삭제][저장] 단추와 겹쳐 잘 안 보였다.
+   가운데로 옮긴다. 되돌리기 띠는 아래 가운데라 서로 안 겹친다.
+   (대표님 지시 2026-10-27) */
+.toast-container {
+  top: 1.25rem; right: auto; left: 50%; transform: translateX(-50%);
+  align-items: center; pointer-events: none;
+}
+.toast { pointer-events: auto; animation: slideInDown 0.25s ease-out; }
+@keyframes slideInDown {
+  from { opacity: 0; transform: translateY(-14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
