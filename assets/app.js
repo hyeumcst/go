@@ -4602,8 +4602,55 @@ function renderBulk() {
     '  </div>',
 
     '</div>',
+
+    /* ── 파이어베이스로 옮기기 ──
+       편집기에서 함수를 찾아 실행하는 길은 대표님께 너무 어려웠다.
+       늘 쓰시는 화면에 단추로 둔다. (대표님 지시 2026-10-27) */
+    '<div class="bulk-steps" style="margin-top:1.25rem">',
+    '  <div class="bulk-step">',
+    '    <div class="bk-no">＊</div>',
+    '    <div class="bk-body">',
+    '      <h3>자료 통째로 내보내기 <span class="form-hint">(파이어베이스로 옮기기 위한 것)</span></h3>',
+    '      <p>지금 자료가 <b>시트에 적힌 그대로</b> JSON 파일 하나로 <b>다운로드 폴더</b>에 저장됩니다.</p>',
+    '      <div class="bk-act">',
+    '        <button class="btn btn-outline" id="bk-ex" onclick="exportForFirebase()">',
+    '          <span class="icon">🗂</span> 통째로 내보내기</button>',
+    '      </div>',
+    '      <p class="form-hint">엑셀과 달리 다듬지 않습니다. 확인함·교육진행·발행요청까지 모두 담기고,',
+    '        줄 수와 금액 합계가 함께 들어가 옮긴 뒤 원 단위까지 맞춰 볼 수 있습니다.',
+    '        <b>비밀번호는 담기지 않습니다.</b></p>',
+    '    </div>',
+    '  </div>',
+    '</div>',
+
     '<div id="bk-result"></div>'
   ].join('');
+}
+
+/**
+ * 자료를 통째로 내보낸다 — 파이어베이스로 옮기기 위한 것.
+ * 파일은 브라우저가 만든다. 구글 드라이브를 거치지 않는다.
+ */
+async function exportForFirebase() {
+  if (BULK.busy) return;
+  BULK.busy = true;
+  const btn = document.getElementById('bk-ex');
+  const old = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '모으는 중…'; }
+
+  try {
+    const r = await API.exportAll();
+    const n = Object.keys(r.자료 || {}).reduce(function (a, t) {
+      return a + (r.자료[t] || []).length;
+    }, 0);
+    showToast(r.파일이름 + ' 을(를) 받았습니다. (표 '
+      + Object.keys(r.자료 || {}).length + '개 · ' + formatNumber(n) + '줄)', 'success');
+  } catch (e) {
+    showToast(e.message, 'error');
+  } finally {
+    BULK.busy = false;
+    if (btn) { btn.disabled = false; btn.innerHTML = old; }
+  }
 }
 
 /** 1단계 — 내 PC 로 받는다 */

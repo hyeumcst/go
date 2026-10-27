@@ -231,6 +231,20 @@ const API = {
     return r;
   },
 
+  /**
+   * 사이트의 모든 자료를 JSON 파일 하나로 내 PC 에 받는다 (관리자만).
+   *
+   * 파이어베이스로 옮기기 위한 것. 엑셀과 달리 자료를 다듬지 않고
+   * 시트에 적힌 그대로 담는다. 나중에 더한 표(확인함·교육진행·발행요청)도
+   * 함께 담기고, 줄 수와 금액 합계를 대조표로 같이 담아 원 단위까지
+   * 맞춰 볼 수 있게 한다. 비밀번호는 담지 않는다.
+   */
+  async exportAll() {
+    const r = await this.get('/export/all');
+    saveJson(r, r.파일이름 || 'hyeumcst-export.json');
+    return r;
+  },
+
   /** 고친 엑셀을 읽어 「무엇이 바뀌는지」 먼저 받아본다 (저장하지 않음) */
   async uploadPreview(file) {
     const sheets = await readExcel(file);
@@ -242,6 +256,23 @@ const API = {
     return this.post('/bulk/apply', { ticket: ticket, force: !!force });
   }
 };
+
+/**
+ * 자료를 JSON 파일로 만들어 내 PC 에 저장한다.
+ * 다운로드 폴더에 바로 떨어진다 — 구글 드라이브를 거치지 않는다.
+ */
+function saveJson(obj, filename) {
+  const blob = new Blob([JSON.stringify(obj, null, 1)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // 바로 거두면 받다가 끊기는 브라우저가 있어 잠깐 둔다
+  setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+}
 
 /* ───────── 엑셀 만들기 · 읽기 (브라우저에서) ───────── */
 
