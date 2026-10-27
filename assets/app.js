@@ -644,6 +644,75 @@ function hideUndo() {
   if (bar) bar.classList.remove('on');
 }
 
+/* ───────── 적어 둔 글을 지웠을 때도 되돌리기 ─────────
+ *
+ * 줄을 통째로 지우는 것(✖)뿐 아니라, 항목명·비고 같은 칸에 적어 둔
+ * 글자를 지웠을 때도 되돌릴 수 있어야 한다. (대표님 지시 2026-10-27)
+ *
+ * 칸을 누른 순간의 값을 기억해 두었다가, 그 칸이 비면 되돌리기를 띄운다.
+ * 한 글자씩 지워서 비운 경우에도 처음 값이 통째로 돌아온다.
+ *
+ * 다시 적기 시작하면 되돌리기를 거둔다 — 새로 적으신 것을 덮으면 안 된다.
+ * ───────────────────────────────────────────────── */
+
+const TEXT_UNDO = { el: null, at: new WeakMap() };
+
+/** 글을 적는 칸인가 (날짜칸·검색칸은 지워도 잃을 것이 없다) */
+function isTextBox(el) {
+  if (!el || !el.tagName) return false;
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'textarea') return true;
+  if (tag !== 'input') return false;
+  if ((el.type || 'text').toLowerCase() !== 'text') return false;
+  if (el.readOnly) return false;                       // 날짜칸
+  if (/-q$/.test(el.id || '')) return false;           // 검색칸
+  return true;
+}
+
+/** 글이 길면 줄여서 보여준다 */
+function shortText(v) {
+  const t = String(v || '').trim().replace(/\s+/g, ' ');
+  return t.length > 24 ? t.slice(0, 24) + '…' : t;
+}
+
+/** 글자를 지웠는지 지켜본다 — 화면 전체에 한 번만 단다 */
+function watchTextClear() {
+  const root = document.getElementById('app');
+  if (!root || root.__textWatch) return;
+  root.__textWatch = true;
+
+  // 칸을 누른 순간의 값을 기억해 둔다
+  root.addEventListener('focusin', function (e) {
+    if (isTextBox(e.target)) TEXT_UNDO.at.set(e.target, e.target.value);
+  });
+
+  root.addEventListener('input', function (e) {
+    const el = e.target;
+    if (!isTextBox(el)) return;
+
+    if (el.value === '') {
+      const old = TEXT_UNDO.at.get(el);
+      if (old && String(old).trim()) {
+        TEXT_UNDO.el = el;
+        offerUndo('적어 두신 글 「' + shortText(old) + '」', function () {
+          if (!el.isConnected) return;               // 화면이 다시 그려졌으면 손대지 않는다
+          el.value = old;
+          // 원래 칸이 하던 일을 그대로 다시 시킨다 (State 까지 돌아가게)
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          try { el.focus(); } catch (err) {}
+        });
+      }
+      return;
+    }
+
+    // 다시 적기 시작하면 거둔다 — 새로 적으신 것을 덮으면 안 되므로
+    if (TEXT_UNDO.el === el) {
+      TEXT_UNDO.el = null;
+      hideUndo();
+    }
+  });
+}
+
 // --- 앱 초기화 ---
 function initApp() {
   const user = API.getUser();
@@ -765,6 +834,9 @@ function initApp() {
   });
 
   watchBrandSub();
+
+  // 적어 둔 글을 지웠을 때 되돌릴 수 있게 지켜본다
+  watchTextClear();
 
   // 첫 화면을 그린 뒤 한가할 때 다른 메뉴 자료를 미리 받아 둔다
   prefetchIdle();
