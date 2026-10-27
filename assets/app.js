@@ -2945,8 +2945,18 @@ function saleRow(it) {
       + String(val == null ? '' : val).replace(/"/g, '&quot;') + '"'
       + ' oninput="updateSale(\'' + id + '\',\'' + field + '\', this.value)">';
   };
+  /*
+   * 수량 칸.
+   * step="1" — 화살표는 1씩 움직인다. 전에는 0.5 씩이라 1을 올리려면
+   * 두 번 눌러야 했다.
+   *
+   * 3.5 시간처럼 중간 값은 손으로 적으면 그대로 들어간다.
+   * (step 과 안 맞는 값도 브라우저가 지우지 않는다. 이 화면은 form 검사를
+   *  쓰지 않고, 잘못된 값이라고 빨갛게 칠하는 규칙도 없다 — 확인했다)
+   * (대표님 지시 2026-10-27)
+   */
   const num = function (field, val, step) {
-    return '<input type="number" step="' + (step || '0.5') + '" min="0" class="form-input ta-r" value="' + (val || 0) + '"'
+    return '<input type="number" step="' + (step || '1') + '" min="0" class="form-input ta-r" value="' + (val || 0) + '"'
       + ' oninput="updateSale(\'' + id + '\',\'' + field + '\', this.value)">';
   };
 
@@ -3223,7 +3233,7 @@ function expenseCard(item) {
       + ' onblur="this.value=formatNumber(parseNumber(this.value))">'));
     out.push('<div class="rop">×</div>');
     out.push(f('rf-qty', '수량',
-      '<input type="number" step="0.5" min="0" class="form-input ta-r" value="' + (item.quantity || 0) + '"'
+      '<input type="number" step="1" min="0" class="form-input ta-r" value="' + (item.quantity || 0) + '"'
       + ' oninput="updateExp(\'' + id + '\', \'quantity\', this.value)">'));
     out.push(f('rf-unit', '단위',
       '<select class="form-select" onchange="updateExp(\'' + id + '\', \'unit\', this.value)">'
