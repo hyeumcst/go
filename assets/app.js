@@ -4179,13 +4179,7 @@ function renderAutoList(container, items, query, onClick, showSub = false) {
     if (!String(query || '').trim()) { container.classList.remove('show'); return; }
     const div = document.createElement('div');
     div.className = 'autocomplete-item create-new';
-    /*
-     * 관리자가 아니면 「신규 등록」이라고 하면 안 된다 — 명부를 못 고치니
-     * 지키지 못할 약속이 된다. (대표님 지시 2026-10-27)
-     */
-    div.innerText = API.isAdmin()
-      ? `"${query}" (신규 등록)`
-      : `"${query}" (명부에 없음 — 이대로 쓰기)`;
+    div.innerText = `"${query}" (신규 등록)`;
     div.onclick = () => { onClick({ name: query }); };
     container.appendChild(div);
   } else {
@@ -4245,9 +4239,11 @@ function reopenNameList(inputEl, itemId, category) {
  * 적어 넣었다. 그래서 등록되었다는 말도 없고, 그 칸을 다시 눌러도
  * 명부에 없으니 계속 「신규 등록」이 떴다. (대표님 지시 2026-10-27)
  *
- * 명부에 올리는 것은 관리자만 할 수 있다 (서버도 보안 규칙도 그렇다).
- * 직원에게는 올리지 못한다고 솔직히 말하고, 이름은 그 줄에 그대로 쓴다.
- * 과정은 저장되고, 나중에 관리자가 명부에 올리면 된다.
+ * 직원도 올릴 수 있다 (대표님 지시 2026-10-27).
+ * 과정을 적다가 처음 보는 고객사·강사·협력사를 만나는 일이 흔한데,
+ * 그때마다 관리자를 기다리면 일이 멈춘다.
+ * 고치고 지우는 것은 여전히 관리자만 한다 — 이미 쌓인 단가·세율을
+ * 누가 바꾸면 지난 과정의 숫자까지 흔들린다.
  *
  * @returns {Object|null} 쓸 사람/업체. 그만두면 null
  */
@@ -4256,13 +4252,6 @@ async function registerIfNew_(item, what) {
 
   const name = String(item.name || '').trim();
   if (!name) return null;
-
-  if (!API.isAdmin()) {
-    // 직원은 명부를 못 고친다. 이름만 적어 두고 간다 — 과정은 저장된다.
-    showToast('「' + name + '」은(는) ' + what + ' 명부에 없습니다. '
-      + '이름은 그대로 쓰이고, 명부 등록은 관리자가 합니다.', 'warning');
-    return { name: name };
-  }
 
   try {
     if (what === '강사') {

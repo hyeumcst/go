@@ -2765,8 +2765,17 @@ function instructorsList(u, q) {
   return { instructors: hideEmail_(u, rows) };
 }
 
+/*
+ * 강사를 명부에 올린다.
+ *
+ * 대표님 지시 (2026-10-27): 직원도 올릴 수 있어야 한다.
+ *   과정을 적다가 처음 보는 강사를 만나는 일이 흔한데, 그때마다
+ *   관리자를 기다리면 일이 멈춘다.
+ *
+ * 고치고 지우는 것은 여전히 관리자만 한다 — 이미 쌓인 단가·세율을
+ * 누가 바꾸면 지난 과정의 숫자까지 흔들린다.
+ */
 function instructorsCreate(u, b) {
-  requireAdmin(u);
   var d = cleanInstructor_(b);
   if (!d.name) throw new Error('강사 이름은 필수입니다.');
   d.is_active = 1;
@@ -2813,8 +2822,12 @@ function partnersList(u, q) {
   };
 }
 
+/*
+ * 협력사를 명부에 올린다.
+ * 강사와 같은 까닭으로 직원도 올릴 수 있다 (대표님 지시 2026-10-27).
+ * 고치고 지우는 것은 관리자만.
+ */
 function partnersCreate(u, b) {
-  requireAdmin(u);
   var nm = trim_(b.name);
   if (!nm) throw new Error('협력사명을 입력해주세요.');
   var dup = Db.first('partners', function (p) { return p.name === nm && p.is_active; });
