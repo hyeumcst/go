@@ -2733,3 +2733,13 @@ tr.v-done td { background: var(--success-bg); }
   font-size: 0.74rem; font-weight: 700; color: var(--sec);
   padding-bottom: 0.45rem; white-space: nowrap;
 }
+
+/* ── 매입 수기작성 — 비고를 아래 줄로 ──
+   수기작성이면 단가·수량·단위·차수 칸이 빠지는 대신 총액·세율처리가
+   들어와, 한 줄에 다 들어가면서 비고가 끝으로 밀려 눌린다.
+   그때만 비고에 아래 줄을 통째로 준다.
+
+   자동계산일 때는 지금이 좋다고 하셨으므로 건드리지 않는다.
+   매출은 따로 말씀이 없어 그대로 둔다. (대표님 지시 2026-10-27) */
+#expense-container .rline.manual .rf-note { flex: 1 1 100%; min-width: 0; order: 99; }
+#expense-container .rline.manual .rtools { order: 98; }
