@@ -30,6 +30,9 @@ const API = {
   isLoggedIn() { return !!this.getToken(); },
   isAdmin() { const u = this.getUser(); return !!(u && u.role === 'admin'); },
   logout() {
+    if (typeof FB !== 'undefined' && FB.USE_FIREBASE && typeof fbLogout === 'function') {
+      try { fbLogout(); } catch (e) {}
+    }
     this._mem.token = null;
     this._mem.user = null;
     this._cache = {};
@@ -72,6 +75,18 @@ const API = {
       if (hit && Date.now() - hit.at < this._CACHE_MS) return hit.v;
     } else {
       this._cache = {};        // 자료가 바뀌면 기억을 모두 버린다
+    }
+
+    /*
+     * 파이어베이스를 켰으면 인터넷에 안 나간다.
+     * 같은 서버 코드를 이 브라우저 안에서 그대로 돌린다 (fb-boot.js).
+     * 메일과 정산 파일 만들기만 앱스스크립트로 넘긴다.
+     */
+    if (typeof FB !== 'undefined' && FB.USE_FIREBASE
+        && typeof fbHandle === 'function' && !fbStaysOnAppsScript(method, s.path)) {
+      const v = await fbHandle(method, s.path, data, s.query);
+      if (method === 'GET') this._cache[key] = { at: Date.now(), v: v };
+      return v;
     }
 
     let res;
@@ -149,7 +164,22 @@ const API = {
 
   // 사용자
   /* 어느 주소(관리자/직원)로 들어왔는지 함께 보낸다 — 서버가 들일지 가린다 */
-  login(username, password) {
+  /**
+   * 로그인.
+   * 파이어베이스를 켰으면 거기로 간다 — 비밀번호가 우리 쪽을 거치지 않는다.
+   */
+  async login(username, password) {
+    if (typeof FB !== 'undefined' && FB.USE_FIREBASE && typeof fbLogin === 'function') {
+      const user = await fbLogin(username, password, typeof SITE === 'undefined' ? 'staff' : SITE);
+      this.setToken('firebase');          // 화면은 「표가 있나」만 본다
+      this.setUser(user);
+      this._cache = {};
+      return { user: user, token: 'firebase' };
+    }
+    return this._loginAppsScript(username, password);
+  },
+
+  _loginAppsScript(username, password) {
     var site = (typeof SITE === 'string' && SITE === 'staff') ? 'staff' : 'admin';
     return this.post('/auth/login', { username, password, site });
   },

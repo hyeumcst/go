@@ -2,7 +2,21 @@
  * HYEUMCST 메인 애플리케이션 로직 (재설계 반영)
  */
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  /*
+   * 파이어베이스를 쓸 때는, 새로고침해도 다시 로그인하지 않게 한다.
+   *
+   * 파이어베이스는 로그인을 기억하고 있는데 이쪽 기억만 날아간다.
+   * 그래서 기억하고 있는 것이 있는지 먼저 물어보고 화면을 그린다.
+   * 묻는 데 0.1초쯤 걸리지만, 안 물으면 새로고침할 때마다 로그인해야 한다.
+   */
+  if (typeof FB !== 'undefined' && FB.USE_FIREBASE && typeof fbRestore === 'function') {
+    try {
+      const back = await fbRestore(siteKind());
+      if (back) { API.setToken('firebase'); API.setUser(back); }
+      else if (API.isLoggedIn()) API.logout();    // 이쪽만 남은 표는 버린다
+    } catch (e) { /* 되살리지 못하면 그냥 로그인 창 */ }
+  }
   showScreen();
 });
 
