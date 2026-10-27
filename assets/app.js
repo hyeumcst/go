@@ -3303,6 +3303,14 @@ function removeExpenseItem(id) {
   calcAllExpenses();
 }
 
+/** 세금 칸에 붙는 이름 — 세율 종류에 따라 다르다 */
+function taxCapLabel(key) {
+  const d = taxDef(key);
+  return d.mode === 'add' ? '부가세 (+)'
+    : d.mode === 'included' ? '부가세 (포함)'
+    : d.mode === 'none' ? '세금 없음' : '원천징수 (−)';
+}
+
 function updateExp(id, field, value) {
   const item = State.expenseItems.find(e => e._id === id);
   if (!item) return;
@@ -3323,18 +3331,26 @@ function updateExp(id, field, value) {
     item.payment_amount = r.payment;
   }
   
-  // 전체 다시 렌더링하면 입력 포커스 잃음. 여기서는 값만 업데이트하고, blur 이벤트나 별도 트리거로 렌더해야 함.
-  // 간단히 DOM 직접 조작
-  if (!item.is_manual && ['quantity', 'sessions', 'unit_price'].includes(field)) {
-    const el = document.getElementById(`exp-${id}-total`);
-    if(el) el.innerText = formatNumber(item.total_amount);
+  /* 그 줄의 총액·세금·실지급액을 그 자리에서 다시 적는다.
+     화면을 통째로 다시 그리면 적고 있던 칸에서 커서가 빠지므로 쓰지 않는다.
+
+     전에는 총액을 직접 넣는 경우(수기작성)에 세금과 실지급액을 건너뛰어,
+     다른 칸을 눌러 화면이 다시 그려질 때까지 0원으로 남아 있었다.
+     이제는 어느 칸을 고치든 바로 다시 적는다. (대표님 지시 2026-10-27) */
+  const write = function (suffix, v) {
+    const el = document.getElementById('exp-' + id + '-' + suffix);
+    if (el) el.innerText = formatNumber(v);
+  };
+  if (!item.is_manual) write('total', item.total_amount);
+  write('tax', item.tax_amount);
+  write('pay', item.payment_amount);
+
+  // 세율을 바꾸면 그 칸의 이름도 따라 바뀐다 (부가세(+) ↔ 원천징수(−))
+  if (field === 'tax_type') {
+    const capEl = document.getElementById('exp-' + id + '-taxcap');
+    if (capEl) capEl.innerText = taxCapLabel(item.tax_type);
   }
-  if (field !== 'total_amount') {
-    const taxEl = document.getElementById(`exp-${id}-tax`);
-    if(taxEl) taxEl.innerText = formatNumber(item.tax_amount);
-    const payEl = document.getElementById(`exp-${id}-pay`);
-    if(payEl) payEl.innerText = formatNumber(item.payment_amount);
-  }
+
   
   calcAllExpenses();
 }
@@ -3398,9 +3414,7 @@ function expenseCard(item) {
   const id = item._id;
   const cat = item.category;
   const tdef = taxDef(item.tax_type);
-  const taxLabel = tdef.mode === 'add' ? '부가세 (+)'
-    : tdef.mode === 'included' ? '부가세 (포함)'
-    : tdef.mode === 'none' ? '세금 없음' : '원천징수 (−)';
+  const taxLabel = taxCapLabel(item.tax_type);
 
   const f = function (cls, cap, inner) {
     return '<div class="rf ' + cls + '"><span class="cap">' + cap + '</span>' + inner + '</div>';
@@ -3421,7 +3435,11 @@ function expenseCard(item) {
   out.push('<div class="rf rf-name autocomplete-wrapper"><span class="cap">이름 / 업체명</span>'
     + '<input type="text" class="form-input" placeholder="입력" value="' + esc(item.name || '') + '"'
     + ' oninput="updateExp(\'' + id + '\', \'name\', this.value)"'
-    + ' onkeyup="debounceNameSearch(this, \'' + id + '\', \'' + cat + '\')">'
+    + ' onkeyup="debounceNameSearch(this, \'' + id + '\', \'' + cat + '\')"'
+    /* 누르면 다시 나온다 — 한 번 고른 뒤에도 (대표님 지시 2026-10-27) */
+    + ' onfocus="reopenNameList(this, \'' + id + '\', \'' + cat + '\')"'
+    + ' onclick="reopenNameList(this, \'' + id + '\', \'' + cat + '\')"'
+    + ' autocomplete="off">'
     + '<div id="auto-inst-' + id + '" class="autocomplete-list"></div></div>');
 
   out.push(f('rf-name', '소속',
@@ -3473,7 +3491,8 @@ function expenseCard(item) {
         return '<option value="' + t.key + '"' + (tdef.key === t.key ? ' selected' : '') + '>' + t.label + '</option>';
       }).join('') + '</select>'));
 
-  out.push('<div class="rf rf-amt sub"><span class="cap">' + taxLabel + '</span>'
+  out.push('<div class="rf rf-amt sub">'
+    + '<span class="cap" id="exp-' + id + '-taxcap">' + taxLabel + '</span>'
     + '<b id="exp-' + id + '-tax">' + formatNumber(item.tax_amount) + '</b></div>');
   out.push('<div class="rop">→</div>');
   out.push('<div class="rf rf-amt pay"><span class="cap">실 지급액</span>'
@@ -4023,32 +4042,56 @@ function setupAutocomplete() {
         }
         renderClientHint();
 
-        renderAutoList(clList, res.clients, q, async (item) => {
-          clList.classList.remove('show');
-
-          // 목록에 없는 이름을 고르면(신규 등록) 곧바로 만들어 ID를 받아온다.
-          // 그래야 담당자를 바로 추가할 수 있다.
-          let id = item.id;
-          if (!id) {
-            try {
-              const r = await API.createClient({ name: item.name });
-              id = r.client.id;
-              showToast('새 고객사 「' + item.name + '」를 등록했습니다.', 'success');
-            } catch (err) {
-              showToast(err.message, 'error');
-              return;
-            }
-          }
-
-          clInput.value = item.name;
-          document.getElementById('p-client-id').value = id;
-          loadContacts(id);
-          renderClientHint();
-        });
+        renderAutoList(clList, res.clients, q, pickClient_);
       }, 300);
     });
+
+    /* 칸을 누르면 목록을 다시 띄운다 — 한 번 고른 뒤에도.
+       전에는 적어 넣을 때만 나와서, 고치려고 다시 눌러도 아무것도
+       나오지 않았다. (대표님 지시 2026-10-27) */
+    const reopen = function () {
+      const q = clInput.value.trim();
+      if (!q) return;                     // 빈 칸은 한 글자 적으면 나온다
+      clearTimeout(State.autocompleteTimer);
+      State.autocompleteTimer = setTimeout(async function () {
+        let res;
+        try { res = await API.searchClients(q); } catch (e) { return; }
+        renderAutoList(clList, res.clients, q, pickClient_);
+      }, 30);
+    };
+    clInput.addEventListener('focus', reopen);
+    clInput.addEventListener('click', reopen);
   }
 
+}
+
+/**
+ * 목록에서 고객사를 고르면.
+ *
+ * 목록에 없는 이름을 고르면(신규 등록) 곧바로 만들어 번호를 받아온다.
+ * 그래야 담당자를 바로 더할 수 있다.
+ */
+async function pickClient_(item) {
+  const clInput = document.getElementById('p-client-name');
+  const clList = document.getElementById('autocomplete-clients');
+  if (clList) clList.classList.remove('show');
+
+  let id = item.id;
+  if (!id) {
+    try {
+      const r = await API.createClient({ name: item.name });
+      id = r.client.id;
+      showToast('새 고객사 「' + item.name + '」를 등록했습니다.', 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+      return;
+    }
+  }
+
+  if (clInput) clInput.value = item.name;
+  document.getElementById('p-client-id').value = id;
+  loadContacts(id);
+  renderClientHint();
 }
 
 /** 고객사 이름이 같은 것인지 — 앞뒤 공백과 대소문자는 눈감아 준다 */
@@ -4118,6 +4161,8 @@ async function createClientNow() {
 function renderAutoList(container, items, query, onClick, showSub = false) {
   container.innerHTML = '';
   if (items.length === 0) {
+    // 적어 넣은 것이 없으면 「"" (신규 등록)」 이라는 빈 줄이 뜬다 — 그건 감춘다
+    if (!String(query || '').trim()) { container.classList.remove('show'); return; }
     const div = document.createElement('div');
     div.className = 'autocomplete-item create-new';
     div.innerText = `"${query}" (신규 등록)`;
@@ -4150,7 +4195,31 @@ document.addEventListener('click', (e) => {
  */
 function debounceNameSearch(inputEl, itemId, category) {
   clearTimeout(State.autocompleteTimer);
-  State.autocompleteTimer = setTimeout(async function () {
+  State.autocompleteTimer = setTimeout(function () {
+    nameSearch_(inputEl, itemId, category);
+  }, 300);
+}
+
+/**
+ * 칸을 누르면 자동완성을 다시 띄운다.
+ *
+ * 전에는 글쇠를 누를 때(onkeyup)만 찾아서, 한 번 고르고 나면
+ * 그 칸을 다시 눌러도 목록이 나오지 않았다. (대표님 지시 2026-10-27)
+ * 누르자마자 나와야 하니 기다리지 않는다. 같은 칸을 거듭 눌러도
+ * 한 번만 묻도록 아주 짧게만 묶어 둔다.
+ *
+ * 빈 칸은 그대로 둔다 — 한 글자만 적으면 목록이 나온다.
+ */
+function reopenNameList(inputEl, itemId, category) {
+  if (!inputEl.value.trim()) return;
+  clearTimeout(State.autocompleteTimer);
+  State.autocompleteTimer = setTimeout(function () {
+    nameSearch_(inputEl, itemId, category);
+  }, 30);
+}
+
+async function nameSearch_(inputEl, itemId, category) {
+  {
     const q = inputEl.value.trim();
     const listEl = document.getElementById('auto-inst-' + itemId);
     if (!listEl) return;
@@ -4188,7 +4257,7 @@ function debounceNameSearch(inputEl, itemId, category) {
     } catch (e) {
       listEl.classList.remove('show');
     }
-  }, 300);
+  }
 }
 
 // --- 과정 저장 ---
@@ -6910,7 +6979,9 @@ function renderInvoices() {
         +   '<input type="text" class="form-input" value="' + esc(r.name || '') + '"'
         +     ' autocomplete="off"'
         +     ' oninput="updateRecipient(\'' + id + '\',' + ri + ',\'name\', this.value)"'
-        +     ' onkeyup="searchRecipient(this, \'' + id + '\',' + ri + ')">'
+        +     ' onkeyup="searchRecipient(this, \'' + id + '\',' + ri + ')"'
+        +     ' onfocus="searchRecipient(this, \'' + id + '\',' + ri + ')"'
+        +     ' onclick="searchRecipient(this, \'' + id + '\',' + ri + ')">'
         +   '<div id="auto-recv-' + id + '-' + ri + '" class="autocomplete-list"></div></div>'
         + '<div class="rf rf-remail"><span class="cap">이메일</span>'
         +   '<input type="text" class="form-input' + (known || !r.name ? '' : ' need') + '"'
