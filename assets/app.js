@@ -4350,15 +4350,39 @@ async function saveProject() {
   if(p.schedule_type === '차수' && p.schedule_dates.length < 2)
     return showToast('차수는 2차수 이상이어야 합니다. 차수를 추가하거나 \u0027기간\u0027을 선택해주세요.', 'warning');
 
+  /*
+   * 저장한 뒤에도 그 화면에 그대로 있는다. (대표님 지시 2026-10-27)
+   *
+   * 전에는 목록으로 넘어갔다. 그래서 이어서 고치려면 다시 찾아 들어가야
+   * 했고, 저장이 제대로 됐는지 눈으로 볼 수도 없었다.
+   *
+   * 「그냥 안 넘어가기」로는 모자란다 — 새로 만든 경우에는 그 과정의
+   * 번호를 들고 있어야 한다. 안 그러면 저장을 한 번 더 누를 때
+   * 같은 과정이 또 만들어진다.
+   *
+   * 그래서 저장한 뒤 그 과정을 다시 열어 준다. 번호를 쥐게 되고,
+   * 저장된 내용이 그대로 화면에 올라와 제대로 들어갔는지도 보인다.
+   */
   try {
+    let id;
     if (currentProject) {
       await API.updateProject(currentProject.id, p);
-      showToast('수정되었습니다.', 'success');
+      id = currentProject.id;
     } else {
-      await API.createProject(p);
-      showToast('등록되었습니다.', 'success');
+      const r = await API.createProject(p);
+      id = r && r.id;
     }
-    navigate(afterProjectRoute());
+
+    const 새로 = !currentProject;
+    if (id) {
+      await renderProjectForm(id);
+      showToast(새로 ? '등록되었습니다. 이어서 고치실 수 있습니다.'
+                     : '저장되었습니다.', 'success');
+    } else {
+      // 번호를 못 받았으면 들고 있을 것이 없다 — 목록으로 간다 (전과 같게)
+      showToast(새로 ? '등록되었습니다.' : '저장되었습니다.', 'success');
+      navigate(afterProjectRoute());
+    }
   } catch(err) {
     showToast(err.message, 'error');
   }
