@@ -2082,7 +2082,8 @@ code {
 .rline .rf-amt .cap { text-align: left; }
 
 /* 8) 계산서 칸 폭 — 비고·이메일이 너무 넓지 않게 */
-.rline .rf-memo   { flex: 0 0 16rem; }
+/* 비고는 남는 자리를 가져간다 — 오른쪽 끝이 위의 항목 표와 맞게 */
+.rline .rf-memo   { flex: 1 1 16rem; }
 .rline .rf-remail { flex: 0 0 14rem; min-width: 10rem; }
 .rline .rf-rname  { flex: 0 0 6.5rem; }
 .rline .rf-rphone { flex: 0 0 8.5rem; }
@@ -2672,12 +2673,12 @@ tr.v-done td { background: var(--success-bg); }
 }
 .form-section .calc-panel .line.sum { border-top-color: color-mix(in srgb, var(--sec) 22%, transparent); }
 
-/* ── 비고는 줄 아래에 따로 ──
-   한 줄에 칸이 많아 비고가 6rem 까지 눌렸다. 적을 자리가 안 났다.
-   order 로 도구(수기·삭제)를 먼저 두고, 비고는 아래 줄을 통째로 쓴다.
-   (대표님 지시 2026-10-27) */
-.rline .rf-note { flex: 1 1 100%; min-width: 0; order: 99; }
-.rline .rtools { order: 98; }
+/* ── 비고 ──
+   한 줄에 칸이 많아 6rem 까지 눌렸다. 아래 줄을 통째로 줘 봤더니
+   이번엔 너무 넓어서, 「지급 일자 · 비고 · 도구」가 한 줄에 오도록 한다.
+   남는 자리를 비고가 가져간다. (대표님 지시 2026-10-27)
+   도구(수기·삭제)는 margin-left:auto 라 그 줄 오른쪽 끝에 붙는다. */
+.rline .rf-note { flex: 1 1 18rem; min-width: 12rem; }
 
 /* ── 되돌리기 띠 ── */
 .undo-bar {
@@ -2717,4 +2718,18 @@ tr.v-done td { background: var(--success-bg); }
 @keyframes slideInDown {
   from { opacity: 0; transform: translateY(-14px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 받는 사람 1 · 2 ──
+   두 분께 발행해 달라는 경우가 있어 늘 두 자리를 보여준다.
+   사이에 선을 그어 누구 자리인지 헷갈리지 않게 한다.
+   (대표님 지시 2026-10-27) */
+.inv-card .recv-one + .recv-one {
+  border-top: 1px dashed var(--border);
+  padding-top: 0.5rem; margin-top: 0.2rem;
+}
+.recv-no {
+  flex: 0 0 5.2rem; align-self: flex-end;
+  font-size: 0.74rem; font-weight: 700; color: var(--sec);
+  padding-bottom: 0.45rem; white-space: nowrap;
 }

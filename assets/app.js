@@ -6595,11 +6595,36 @@ function fillInvItems(id) {
 
 /* ───────── 받는 사람 ───────── */
 
+/**
+ * 받는 사람 — 늘 두 자리를 보여준다.
+ *
+ * 두 분께 발행해 달라는 경우가 있는데, 전에는 한 자리만 보이고
+ * ＋ 를 눌러야 둘째가 나왔다. 그걸 모르고 지나치기 쉬웠다.
+ * 빈 자리는 저장되지 않는다 (서버의 cleanRecipients 가 걸러낸다).
+ * (대표님 지시 2026-10-27)
+ */
 function invRecipients(it) {
-  if (!Array.isArray(it.recipients) || it.recipients.length === 0) {
-    it.recipients = [{ name: '', email: '', phone: '' }];
-  }
+  if (!Array.isArray(it.recipients)) it.recipients = [];
+  while (it.recipients.length < 2) it.recipients.push({ name: '', email: '', phone: '' });
   return it.recipients;
+}
+
+/** 받는 사람 한 자리를 비운다 (자리는 그대로 둔다) */
+function clearRecipient(id, i) {
+  const it = State.invoices.find(function (x) { return x._id === id; });
+  if (!it) return;
+  const r = invRecipients(it)[i];
+  if (!r) return;
+  const gone = { name: r.name, email: r.email, phone: r.phone };
+  r.name = ''; r.email = ''; r.phone = '';
+  if (gone.name || gone.email || gone.phone) {
+    offerUndo('받는 사람 ' + (i + 1) + ' 「' + (gone.name || '이름 없음') + '」', function () {
+      const back = invRecipients(it)[i];
+      if (back) { back.name = gone.name; back.email = gone.email; back.phone = gone.phone; }
+      renderInvoices();
+    });
+  }
+  renderInvoices();
 }
 
 function addRecipient(id) {
@@ -6808,6 +6833,7 @@ function renderInvoices() {
     invRecipients(it).forEach(function (r, ri) {
       const known = !!(r.email || r.phone);
       out.push('<div class="recv-one">'
+        + '<div class="recv-no">받는 사람 ' + (ri + 1) + '</div>'
         + '<div class="rf rf-rname autocomplete-wrapper"><span class="cap">이름</span>'
         +   '<input type="text" class="form-input" value="' + esc(r.name || '') + '"'
         +     ' autocomplete="off"'
@@ -6824,11 +6850,10 @@ function renderInvoices() {
         +     ' placeholder="' + (r.name && !known ? '확인해주세요' : '') + '"'
         +     ' value="' + esc(r.phone || '') + '"'
         +     ' oninput="updateRecipient(\'' + id + '\',' + ri + ',\'phone\', this.value)"></div>'
-        + '<button type="button" class="recv-btn" title="받는 사람 추가"'
-        +   ' onclick="addRecipient(\'' + id + '\')">＋</button>'
-        + '<button type="button" class="recv-btn del" title="이 사람 빼기"'
-        +   ' onclick="removeRecipient(\'' + id + '\',' + ri + ')"'
-        +   (invRecipients(it).length <= 1 ? ' disabled' : '') + '>✖</button>'
+        /* 늘 두 자리를 보여주므로 ＋ 는 필요 없다.
+           비우면 그 사람은 저장되지 않는다 — ✖ 는 「비우기」로 둔다. */
+        + '<button type="button" class="recv-btn del" title="이 사람 비우기"'
+        +   ' onclick="clearRecipient(\'' + id + '\',' + ri + ')">✖</button>'
         + '</div>');
     });
     out.push('</div></div>');
