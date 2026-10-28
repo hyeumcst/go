@@ -4744,7 +4744,29 @@ function groupDiff_(grid, ctx) {
     if (empty) continue;
 
     var kind = String(line[at['구분']] || '').trim();
-    if (!kind) continue;
+    if (!kind) {
+      /*
+       * 적은 것은 있는데 「구분」이 비었다.
+       *
+       * 전에는 조용히 건너뛰었다. 그래서 줄을 끼워 넣고 구분을 빠뜨리면
+       * 아무 말 없이 그 줄이 사라졌다 — 올린 사람은 들어간 줄 안다.
+       * 적어 넣은 것이 소리 없이 없어지는 것이 가장 나쁘다.
+       * (2026-10-28)
+       *
+       * 무엇을 적은 줄인지 함께 보여줘서 엑셀에서 찾기 쉽게 한다.
+       */
+      /* 이름을 조심한다 — 이 함수에는 이미 seen 이 있다 (var 는 함수 전체에 걸린다) */
+      var typed = [];
+      headers.forEach(function (h, i) {
+        if (h === '순서' || typed.length >= 3) return;
+        var v = line[i];
+        if (v !== '' && v !== null && v !== undefined) typed.push(h + ' ' + v);
+      });
+      problems.push((r + 1) + '번째 줄: 「구분」이 비어 있습니다. '
+        + '과정 · 매출 · 매입 · 계산서 중 하나를 적어주세요.'
+        + (typed.length ? ' (적으신 것: ' + typed.join(' · ') + ')' : ''));
+      continue;
+    }
     if (GROUP_KINDS.indexOf(kind) < 0) {
       problems.push((r + 1) + '번째 줄: 「구분」은 과정 · 매출 · 매입 · 계산서 중 하나여야 합니다. (' + kind + ')');
       continue;
