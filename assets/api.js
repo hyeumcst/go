@@ -156,7 +156,10 @@ const API = {
   // 세금계산서
   getInvoices(params) { return this.get('/invoices' + this.qs(params)); },
   setInvoicePaid(id, date) { return this.put('/invoices/' + id + '/paid', { paid_date: date }); },
-  searchRecipients(q) { return this.get('/invoices/recipients' + this.qs({ q: q })); },
+  /* 받는 사람 — 그 고객사의 담당자부터 찾는다 (client_id 를 함께 보낸다) */
+  searchRecipients(q, clientId) {
+    return this.get('/invoices/recipients' + this.qs({ q: q, client_id: clientId }));
+  },
 
   // 법인카드
   getCards(params) { return this.get('/cards' + this.qs(params)); },

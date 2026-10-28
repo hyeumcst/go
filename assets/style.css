@@ -2787,3 +2787,14 @@ tr.v-done td { background: var(--success-bg); }
 /* 전 → 후 가 한눈에 갈리도록 */
 .bk-field .was { color: var(--text-muted); text-decoration: line-through; }
 .bk-field .now { color: var(--text-primary); font-weight: 600; }
+
+/* ── 자동완성에서 「어디서 온 이름인지」 ──
+   강사와 협력사를 합쳐서 보여주고, 받는 사람은 담당자와 지난 계산서를
+   합쳐서 보여준다. 표시가 없으면 같은 이름이 둘 다 있을 때
+   어느 쪽을 고른 것인지 알 수 없다. (대표님 지시 2026-10-28) */
+.autocomplete-item .ac-tag {
+  margin-left: 0.4rem; padding: 0.05rem 0.35rem;
+  font-size: 0.68rem; font-weight: 600; vertical-align: middle;
+  color: var(--text-muted); background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 0.6rem;
+}

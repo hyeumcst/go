@@ -4192,7 +4192,17 @@ function renderAutoList(container, items, query, onClick, showSub = false) {
     items.forEach(item => {
       const div = document.createElement('div');
       div.className = 'autocomplete-item';
-      div.innerHTML = `<div class="main-text">${item.name}</div>${showSub && (item.email || item.phone) ? `<div class="sub-text">${item.email || ''} ${item.phone || ''}</div>` : ''}${item.affiliation ? `<div class="sub-text">${item.affiliation}</div>` : ''}`;
+      /*
+       * 어느 명부에서 왔는지 (_from) 를 이름 옆에 달아 준다.
+       * 강사와 협력사를 합쳐서 보여주므로, 표시가 없으면 같은 이름이
+       * 둘 다 있을 때 어느 쪽을 고른 것인지 알 수 없다.
+       * (대표님 지시 2026-10-28)
+       */
+      const tag = item._from ? `<span class="ac-tag">${esc(item._from)}</span>` : '';
+      div.innerHTML = `<div class="main-text">${esc(item.name)}${tag}</div>`
+        + (showSub && (item.email || item.phone)
+            ? `<div class="sub-text">${esc(item.email || '')} ${esc(item.phone || '')}</div>` : '')
+        + (item.affiliation ? `<div class="sub-text">${esc(item.affiliation)}</div>` : '');
       div.onclick = () => { onClick(item); };
       container.appendChild(div);
     });
@@ -4289,39 +4299,61 @@ async function nameSearch_(inputEl, itemId, category) {
     if (!listEl) return;
     if (q.length < 1) { listEl.classList.remove('show'); return; }
 
+    /*
+     * 강사와 협력사를 **합쳐서** 찾는다. (대표님 지시 2026-10-28)
+     *
+     * 적을 때는 분류로 가르지만, 찾을 때까지 가르면 불편하다.
+     * 같은 분이 어느 쪽 명부에 들어 있는지 기억하고 계셔야 하기 때문이다.
+     * 강의 줄에서도 협력사가, 협력사 줄에서도 강사가 나와야 한다.
+     * (엑셀은 지금처럼 두 시트로 나뉜 채 그대로 둔다)
+     *
+     * 둘 다 물어봐도 값이 들지 않는다 — 파이어베이스를 쓰면서
+     * 이 찾기는 이미 받아 둔 자료에서 하므로 인터넷에 안 나간다.
+     */
     try {
-      if (category === '강의') {
-        const res = await API.searchInstructors(q);
-        renderAutoList(listEl, res.instructors, q, async function (item) {
-          listEl.classList.remove('show');
-          const picked = await registerIfNew_(item, '강사');
-          if (!picked) return;
-          const t = State.expenseItems.find(function (x) { return x._id === itemId; });
-          if (t) {
-            t.instructor_id = picked.id || null;
-            t.name = picked.name;
-            if (picked.affiliation) t.affiliation = picked.affiliation;
-            if (picked.default_tax_type) t.tax_type = picked.default_tax_type;
-            if (picked.default_unit_price && !t.is_manual) t.unit_price = picked.default_unit_price;
-            if (!t.unit) t.unit = '시간';
-          }
-          renderExpenseItems();
-        }, true);
-      } else {
-        const res = await API.searchPartners(q);
-        renderAutoList(listEl, res.partners, q, async function (item) {
-          listEl.classList.remove('show');
-          const picked = await registerIfNew_(item, '협력사');
-          if (!picked) return;
-          const t = State.expenseItems.find(function (x) { return x._id === itemId; });
-          if (t) {
-            t.name = picked.name;
-            t.instructor_id = null;
-            if (picked.default_tax_type) t.tax_type = picked.default_tax_type;
-          }
-          renderExpenseItems();
-        }, true);
-      }
+      const [ins, par] = await Promise.all([
+        API.searchInstructors(q).catch(function () { return { instructors: [] }; }),
+        API.searchPartners(q).catch(function () { return { partners: [] }; })
+      ]);
+
+      /* 어느 명부에서 왔는지 들고 다닌다 — 고를 때 할 일이 다르다 */
+      const merged = []
+        .concat((ins.instructors || []).map(function (x) {
+          return Object.assign({}, x, { _from: '강사' });
+        }))
+        .concat((par.partners || []).map(function (x) {
+          return Object.assign({}, x, { _from: '협력사' });
+        }));
+
+      /* 같은 이름이 양쪽에 있으면 지금 분류 쪽을 먼저 보여준다 */
+      const mine = (category === '강의') ? '강사' : '협력사';
+      merged.sort(function (a, b) {
+        if ((a._from === mine) !== (b._from === mine)) return a._from === mine ? -1 : 1;
+        return String(a.name || '').localeCompare(String(b.name || ''), 'ko');
+      });
+
+      renderAutoList(listEl, merged.slice(0, 12), q, async function (item) {
+        listEl.classList.remove('show');
+        /*
+         * 새로 올릴 때는 지금 분류를 따른다 — 강의 줄이면 강사 명부로.
+         * 목록에서 고른 것은 그것이 있던 명부를 그대로 쓴다.
+         */
+        const where = item.id ? item._from : mine;
+        const picked = await registerIfNew_(item, where);
+        if (!picked) return;
+
+        const t = State.expenseItems.find(function (x) { return x._id === itemId; });
+        if (t) {
+          t.name = picked.name;
+          /* 강사 번호는 강사 명부에서 온 것만 — 협력사를 강사로 적으면 통계가 틀린다 */
+          t.instructor_id = (where === '강사' && picked.id) ? picked.id : null;
+          if (picked.affiliation) t.affiliation = picked.affiliation;
+          if (picked.default_tax_type) t.tax_type = picked.default_tax_type;
+          if (picked.default_unit_price && !t.is_manual) t.unit_price = picked.default_unit_price;
+          if (where === '강사' && !t.unit) t.unit = '시간';
+        }
+        renderExpenseItems();
+      }, true);
     } catch (e) {
       listEl.classList.remove('show');
     }
@@ -6961,23 +6993,44 @@ function updateRecipient(id, i, field, value) {
 
 /** 이름 첫 글자로 전에 받았던 사람을 찾는다 */
 let recvSearchTimer = null;
+/*
+ * 계산서 받는 사람 찾기.
+ *
+ * 그 과정의 고객사 담당자부터 보여준다 (대표님 지시 2026-10-28).
+ * 대개 그분들께 보내기 때문이다. 담당자 표에는 이메일·연락처 칸이
+ * 없어서, 지난 계산서에 같은 이름이 있으면 거기 적힌 것을 끌어다 준다.
+ *
+ * 아직 아무것도 안 적었어도 그 고객사의 담당자는 보여준다 —
+ * 이름을 기억해 내지 않아도 고를 수 있게.
+ * 세금계산서 담당자가 따로 있는 경우에는 그냥 적으시면 그대로 쓰인다.
+ */
 function searchRecipient(el, id, i) {
   const q = el.value.trim();
   const box = document.getElementById('auto-recv-' + id + '-' + i);
   if (!box) return;
   clearTimeout(recvSearchTimer);
-  if (q.length === 0) { box.classList.remove('show'); box.innerHTML = ''; return; }
+
+  const clientId = (document.getElementById('p-client-id') || {}).value || '';
+  /* 고객사를 아직 안 고르셨으면, 적어 넣기 전에는 보여줄 것이 없다 */
+  if (q.length === 0 && !clientId) {
+    box.classList.remove('show'); box.innerHTML = '';
+    return;
+  }
 
   recvSearchTimer = setTimeout(async function () {
     let list = [];
-    try { list = (await API.searchRecipients(q)).recipients || []; } catch (e) { return; }
+    try { list = (await API.searchRecipients(q, clientId)).recipients || []; }
+    catch (e) { return; }
     if (list.length === 0) { box.classList.remove('show'); box.innerHTML = ''; return; }
     box.innerHTML = list.map(function (p, k) {
       const sub = [p.email, p.phone].filter(Boolean).join(' · ');
+      /* 담당자인지 지난 계산서에서 온 것인지 — 같은 이름이 둘 다 있을 수 있다 */
+      const tag = p._from ? '<span class="ac-tag">' + esc(p._from) + '</span>' : '';
       return '<div class="autocomplete-item" onclick="pickRecipient(\'' + id + '\',' + i + ',' + k + ')">'
-        + '<div class="main-text">' + esc(p.name) + '</div>'
+        + '<div class="main-text">' + esc(p.name) + tag + '</div>'
+        + (p.affiliation ? '<div class="sub-text">' + esc(p.affiliation) + '</div>' : '')
         + (sub ? '<div class="sub-text">' + esc(sub) + '</div>'
-               : '<div class="sub-text muted">이메일·연락처 없음 — 확인해주세요</div>')
+               : '<div class="sub-text muted">이메일·연락처 없음 — 적어주세요</div>')
         + '</div>';
     }).join('');
     box.classList.add('show');

@@ -4030,36 +4030,106 @@ function invoiceRequesters_() {
  * 전에 계산서를 받았던 사람 찾기 (이름 첫 글자로)
  * 같은 이름이 여러 번 나오면 가장 최근에 쓴 이메일·연락처를 준다.
  */
+/*
+ * 계산서 받는 사람 찾기.
+ *
+ * 두 군데서 모아 온다 (대표님 지시 2026-10-28)
+ *   ① 그 고객사의 담당자  — 대개 이분들께 보낸다
+ *   ② 지난 계산서의 받는 사람 — 이메일·연락처가 거기 적혀 있다
+ *
+ * 담당자 표에는 이메일·연락처 칸이 없다. 그래서 같은 이름이 지난
+ * 계산서에도 있으면 거기 적힌 이메일·연락처를 끌어다 채워 준다.
+ * 처음 보내는 분이면 비워서 보내고, 화면에서 적으시면 된다.
+ *
+ * 세금계산서 담당자가 따로 있는 경우가 있어, 목록에 없는 이름도
+ * 그대로 적어 쓸 수 있다 (화면이 적은 글자를 그냥 쓴다).
+ *
+ * @param q  { q: 찾는 글자, client_id: 그 과정의 고객사 }
+ */
 function invoiceRecipients(u, q) {
-  var kw = String(q || '').trim().toLowerCase();
+  q = q || {};
+  var kw = String(q.q || '').trim().toLowerCase();
+  var clientId = Number(q.client_id) || 0;
 
-  // id 큰 순(최근 순)으로 보고, 같은 이름은 처음 만난 것만 쓴다
-  var rows = Db.all('project_invoices').slice().sort(function (a, b) { return b.id - a.id; });
+  /* ── ② 지난 계산서에 적힌 분들 — 이름으로 찾아 쓸 수 있게 ──
+   *
+   * 고객사를 고르셨으면 **그 고객사에 보낸 계산서만** 본다.
+   * 안 그러면 다라물산 계산서를 쓰는데 가나상사 담당자가 섞여 나온다.
+   * 엉뚱한 분께 보낼 위험이고, 고객사끼리 정보가 새는 길이기도 하다.
+   * (시험이 잡아냈다 2026-10-28)
+   */
+  var mineProj = null;
+  if (clientId) {
+    mineProj = {};
+    Db.where('projects', function (p) {
+      return Number(p.client_id) === clientId;
+    }).forEach(function (p) { mineProj[p.id] = true; });
+  }
 
-  var seen = {}, list = [];
-  rows.forEach(function (r) {
-    unwrap_(r.recipients, []).forEach(function (p) {
-      var name = String((p && p.name) || '').trim();
-      if (!name) return;
-      var key = name.toLowerCase();
-      if (seen[key]) return;
-      seen[key] = true;
-      list.push({
-        name: name,
-        email: String((p && p.email) || '').trim(),
-        phone: String((p && p.phone) || '').trim()
+  var past = {};
+  Db.all('project_invoices').slice()
+    .sort(function (a, b) { return b.id - a.id; })   // 최근 것부터 (같은 이름은 최근 것을 쓴다)
+    .forEach(function (r) {
+      if (mineProj && !mineProj[r.project_id]) return;
+      unwrap_(r.recipients, []).forEach(function (p) {
+        var name = String((p && p.name) || '').trim();
+        if (!name) return;
+        var key = name.toLowerCase();
+        if (past[key]) return;
+        past[key] = {
+          name: name,
+          email: String((p && p.email) || '').trim(),
+          phone: String((p && p.phone) || '').trim()
+        };
       });
     });
+
+  var seen = {}, list = [];
+  var add = function (o) {
+    var key = String(o.name || '').toLowerCase();
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    list.push(o);
+  };
+
+  /* ── ① 그 고객사의 담당자를 먼저 ── */
+  if (clientId) {
+    Db.where('contacts', function (c) {
+      return c.is_active && Number(c.client_id) === clientId;
+    }).sort(byName_).forEach(function (c) {
+      var hit = past[String(c.name || '').trim().toLowerCase()] || {};
+      add({
+        name: String(c.name || '').trim(),
+        email: hit.email || '',
+        phone: hit.phone || '',
+        /* 직급·부서는 동명이인을 가리는 데 쓴다 */
+        affiliation: [c.position, c.department].filter(Boolean).join(' · '),
+        _from: '담당자'
+      });
+    });
+  }
+
+  /* ── ② 그 뒤에 지난 계산서에서 ── */
+  Object.keys(past).forEach(function (k) {
+    add(Object.assign({}, past[k], { _from: '지난 계산서' }));
   });
 
   if (kw) {
-    list = list.filter(function (p) { return p.name.toLowerCase().indexOf(kw) === 0; });
+    list = list.filter(function (p) {
+      return String(p.name).toLowerCase().indexOf(kw) === 0;
+    });
   }
-  list.sort(function (a, b) { return koSort_(a.name, b.name); });
-  list = list.slice(0, 10);
+  list = list.slice(0, 12);
 
   // 관리자가 아니면 가린 값만 내보낸다
-  return { recipients: isAdmin(u) ? list : maskRecipients(list) };
+  if (isAdmin(u)) return { recipients: list };
+  var masked = maskRecipients(list);
+  /* 가려도 「어디서 왔는지」와 직급은 남긴다 — 누구인지 가리는 데 필요하다 */
+  masked.forEach(function (m, i) {
+    m._from = list[i]._from;
+    m.affiliation = list[i].affiliation || '';
+  });
+  return { recipients: masked };
 }
 
 /** 입금일만 바꾼다 — 비우면 다시 미수가 된다 */
@@ -6405,7 +6475,7 @@ function route_(u, method, path, b, q) {
 
   /* ───── 세금계산서 ───── */
   if (head === 'invoices') {
-    if (GET && a === 'recipients') return invoiceRecipients(u, q.q);
+    if (GET && a === 'recipients') return invoiceRecipients(u, q);
     if (GET && !a) return invoicesList(u, q);
     if (PUT && a && c === 'paid') return invoiceSetPaid(u, a, b);
     // 발행 담당자에게 메일로 요청을 보낸다
