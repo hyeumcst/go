@@ -2771,3 +2771,19 @@ tr.v-done td { background: var(--success-bg); }
    매출은 따로 말씀이 없어 그대로 둔다. (대표님 지시 2026-10-27) */
 #expense-container .rline.manual .rf-note { flex: 1 1 100%; min-width: 0; order: 99; }
 #expense-container .rline.manual .rtools { order: 98; }
+
+/* ── 엑셀 올렸을 때 「무엇이 바뀌는지」 ──
+   「수정 1건」 이라고 숫자만 보여주면, 고친 기억이 없을 때
+   반영해도 되는지 알 길이 없다. (대표님 지시 2026-10-28) */
+.bk-edits {
+  margin-top: 1rem; padding: 0.9rem 1rem;
+  background: var(--info-bg); border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-sm); font-size: 0.82rem;
+}
+.bk-edits > b { display: block; margin-bottom: 0.5rem; color: var(--info); }
+.bk-edits .bk-dl-row { padding: 0.45rem 0; border-top: 1px solid rgba(59, 130, 246, 0.12); }
+.bk-edits .bk-dl-row:first-of-type { border-top: none; }
+.bk-field { margin: 0.2rem 0 0 0.8rem; color: var(--text-secondary); }
+/* 전 → 후 가 한눈에 갈리도록 */
+.bk-field .was { color: var(--text-muted); text-decoration: line-through; }
+.bk-field .now { color: var(--text-primary); font-weight: 600; }

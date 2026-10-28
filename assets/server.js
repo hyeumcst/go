@@ -5348,18 +5348,68 @@ function datesToText_(p) {
 }
 
 /** 그 글자를 다시 일정으로 */
+/*
+ * 적어 주신 교육일정을 날짜로 읽는다.
+ *
+ * 사람이 적는 대로 읽어야 한다. 대표님은 이렇게 적으신다
+ *   2026-10-6,10-8,10-13 / 11-3,11-5
+ * 앞에 한 번 연도를 적고 그 뒤로는 월·일만, 묶음은 「/」로 가른다.
+ * 전에는 2026-10-06 처럼 적은 것만 읽어서, 위 글은 통째로 못 알아들었다.
+ * (대표님이 겪으심 2026-10-28)
+ *
+ * 읽는 규칙
+ *   나누는 글자   ,  ;  줄바꿈  그리고 「/」
+ *   날짜          2026-10-6 · 2026.10.6 · 2026/10/6 · 20261006
+ *   연도 생략     10-8 → 바로 앞에 나온 연도를 따른다
+ *   기간          2026-11-03~2026-11-05  (~ 뒤도 연도 생략 가능)
+ *
+ * 「/」가 날짜 안에 쓰인 경우(2026/10/06)와 헷갈리지 않게,
+ * 글 안에 「-」로 적은 날짜가 하나라도 있으면 「/」를 나누는 글자로 본다.
+ */
 function textToDates_(v) {
+  var raw = String(v === null || v === undefined ? '' : v).trim();
+  if (!raw) return [];
+
+  /* 「/」를 나누는 글자로 볼 것인가 */
+  var dashDate = /\d{1,4}\s*-\s*\d{1,2}/.test(raw);
+  var splitter = dashDate ? /[,;\n\/]/ : /[,;\n]/;
+
+  var year = '';
   var out = [];
-  String(v || '').split(',').forEach(function (chunk) {
-    var t = chunk.trim();
+
+  /** 날짜 한 조각을 YYYY-MM-DD 로. 못 읽으면 null */
+  var one = function (t) {
+    var s = String(t || '').trim().replace(/[.\/]/g, '-').replace(/\s+/g, '');
+    if (!s) return null;
+
+    var m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (m) { year = m[1]; return m[1] + '-' + pad2_(m[2]) + '-' + pad2_(m[3]); }
+
+    m = s.match(/^(\d{4})(\d{2})(\d{2})$/);          // 20261006
+    if (m) { year = m[1]; return m[1] + '-' + m[2] + '-' + m[3]; }
+
+    m = s.match(/^(\d{1,2})-(\d{1,2})$/);            // 10-8  (연도 생략)
+    if (m && year) return year + '-' + pad2_(m[1]) + '-' + pad2_(m[2]);
+
+    return null;
+  };
+
+  raw.split(splitter).forEach(function (chunk) {
+    var t = String(chunk).trim();
     if (!t) return;
+
     var two = t.split('~');
-    var s = (two[0] || '').trim();
-    var e = (two[1] || s).trim();
-    if (DATE_RE.test(s)) out.push({ s: s, e: DATE_RE.test(e) ? e : s });
+    var s = one(two[0]);
+    if (!s) return;                                   // 못 읽은 조각은 버린다
+    var e = (two.length > 1) ? one(two[1]) : null;
+    out.push({ s: s, e: e || s });
   });
+
   return out;
 }
+
+/* 한 자리를 두 자리로 만드는 pad2_ 는 Analytics.gs 에 이미 있다.
+   같은 이름을 또 만들면 나중 것이 앞의 것을 조용히 덮어쓴다. */
 
 /** 받는사람 목록에서 한 칸만 뽑아 쉼표로 잇는다 */
 function recvField_(raw, field) {
@@ -5820,6 +5870,7 @@ function bulkPreview(u, body) {
     problems: d.problems,
     before: before,
     deletes: bulkDeletePreview_(d.plan),
+    edits: bulkEditPreview_(d.plan),
     sheetsFound: Object.keys(sheetsIn)
   };
 }
@@ -5834,6 +5885,64 @@ function bulkDeletePreview_(plan) {
       key: k,
       count: del.length,
       sample: del.slice(0, 8).map(function (x) { return x.label; })
+    });
+  });
+  return out;
+}
+
+/*
+ * 무엇이 어떻게 바뀌는지 보여준다.
+ *
+ * 전에는 「수정 1건」 이라고 숫자만 알려줬다. 고친 기억이 없는데
+ * 그렇게 나오면, 반영해도 되는지 알 길이 없어 그냥 취소하게 된다.
+ * 실제로 대표님이 그런 일을 겪으셨다. (2026-10-28)
+ *
+ * 그래서 「어느 줄의 어느 칸이 무엇에서 무엇으로」 를 적어 보낸다.
+ * 보시고 맞으면 반영, 아니면 엑셀을 다시 받으시면 된다.
+ */
+function bulkEditPreview_(plan) {
+  var LABEL = {
+    projects: '과정', project_sales: '매출',
+    project_expenses: '매입', project_invoices: '계산서'
+  };
+  /* 칸 이름을 엑셀 머리글과 같게 보여준다 — 「schedule_dates」 로는 못 알아본다 */
+  var FIELD = {
+    course_name: '과정명', _client: '고객사', _contact: '고객담당자',
+    _dates: '교육일정', schedule_dates: '교육일정', schedule_type: '일정유형',
+    type: '교육구분', company: '회사', manager: '혜움담당자', sales_rep: '영업(외부)',
+    memo: '메모', vat_mode: '부가세처리', discount: '절사', discount_base: '절사기준',
+    category: '세부분류', name: '항목·이름', amount: '금액', total_amount: '금액',
+    unit_price: '단가', qty1: '수량', unit1: '단위', sessions: '차수',
+    quantity: '수량', unit: '단위', tax_type: '세율', payment_date: '지급일',
+    affiliation: '소속', card_last4: '카드번호', note: '비고',
+    is_manual: '수기작성', supply_amount: '공급가액', vat: '부가세',
+    issue_date: '발행일', paid_date: '입금일', seq: '장수', pay_type: '청구/영수'
+  };
+  var show = function (v) {
+    if (v === null || v === undefined || v === '') return '(비어 있음)';
+    var s = String(v);
+    return s.length > 40 ? s.slice(0, 40) + '…' : s;
+  };
+
+  var out = [];
+  Object.keys(plan).forEach(function (k) {
+    (plan[k].edit || []).slice(0, 10).forEach(function (e) {
+      var fields = [];
+      Object.keys(e.patch).forEach(function (fld) {
+        if (fld === 'updated_at') return;            // 저절로 바뀌는 칸은 보여줄 것이 없다
+        fields.push({
+          name: FIELD[fld] || fld,
+          from: show(e.before ? e.before[fld] : null),
+          to: show(e.patch[fld])
+        });
+      });
+      if (!fields.length) return;
+      out.push({
+        key: k,
+        label: (LABEL[k] || k) + ' #' + e.id,
+        row: e.row,
+        fields: fields.slice(0, 6)
+      });
     });
   });
   return out;

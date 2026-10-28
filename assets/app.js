@@ -4844,6 +4844,29 @@ function renderBulkPreview(p) {
       '</div>'
     ].join('') : '',
 
+    /*
+     * 무엇이 어떻게 바뀌는지.
+     *
+     * 「수정 1건」 이라고 숫자만 보여주면, 고친 기억이 없을 때
+     * 반영해도 되는지 알 길이 없다. (대표님 지시 2026-10-28)
+     */
+    (p.edits || []).length ? [
+      '<div class="bk-edits">',
+      '  <b>고쳐질 내용</b>',
+      (p.edits || []).map(function (e) {
+        return '<div class="bk-dl-row">'
+          + '<b>' + esc(e.label) + '</b>'
+          + ' <span class="form-hint">(엑셀 ' + e.row + '번째 줄)</span>'
+          + e.fields.map(function (f) {
+              return '<div class="bk-field">' + esc(f.name) + ' : '
+                + '<span class="was">' + esc(f.from) + '</span>'
+                + ' → <span class="now">' + esc(f.to) + '</span></div>';
+            }).join('')
+          + '</div>';
+      }).join(''),
+      '</div>'
+    ].join('') : '',
+
     /* 고칠 곳 */
     p.problems.length ? [
       '<div class="bk-danger">',
