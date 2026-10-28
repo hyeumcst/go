@@ -7798,7 +7798,14 @@ async function deleteCard(id) {
  *
  * 관리자만 씁니다.
  */
-const OP = { month: '', q: '', open: 0, tab: 'book' };
+const OP = {
+  /*
+   * 달 — null 은 「아직 안 고르셨다」(처음 들어오시면 이번 달),
+   *      '' 은 「전체」를 고르신 것이다. 둘을 갈라 둬야
+   *      전체를 고르셨을 때 이번 달로 되돌아가지 않는다.
+   */
+  month: null, q: '', open: 0, tab: 'book'
+};
 
 /* 서버가 주는 탭 정의 — 항목명 보기 · 고를 수 있는 세율이 여기 들어 있다 */
 let OP_TABS_DEF = [];
@@ -7825,7 +7832,7 @@ async function renderOpCosts() {
   if (!API.isAdmin()) return showToast('관리자만 사용할 수 있습니다.', 'error');
   REDRAW = renderOpCosts;
   const content = document.getElementById('main-content');
-  if (OP.month === '') OP.month = opThisMonth();
+  if (OP.month === null) OP.month = opThisMonth();   // 처음 들어오시면 이번 달
 
   let d;
   try { d = await API.getOpCosts({ month: OP.month, q: OP.q }); }
@@ -7851,19 +7858,20 @@ async function renderOpCosts() {
 
     '<div class="list-filter">',
     '  <select class="form-select" style="max-width:11rem" onchange="setOp(\'month\', this.value)">',
-    opt('', '달 전체', OP.month),
+    opt('', '전체', OP.month),
     months.map(m => opt(m, opMonthLabel(m), OP.month)).join(''),
     '  </select>',
     '  <div class="f-search">',
     '    <input type="text" id="op-q" class="form-input" placeholder="과정명 · 고객사 검색"',
     '      value="' + esc(OP.q) + '" oninput="onOpSearch(this.value)">',
     '  </div>',
-    ((OP.q || OP.month) ? '<button class="btn btn-ghost btn-sm" onclick="resetOp()">✕ 조건 지우기</button>' : ''),
+    ((OP.q || OP.month !== '') ? '<button class="btn btn-ghost btn-sm" onclick="resetOp()">✕ 조건 지우기</button>' : ''),
     '</div>',
 
     '<div class="op-note">달은 <b>교육일정</b> 기준입니다. '
       + (OP.month ? esc(opMonthLabel(OP.month)) + '에 <b>교육을 한</b> 과정이 나옵니다.'
-                  : '달을 고르시면 그 달에 교육을 한 과정만 나옵니다.') + '</div>',
+                  : '지금은 <b>전체</b>를 보고 있습니다 — 달을 고르시면 그 달에 교육을 한 과정만 나옵니다.')
+      + '</div>',
 
     '<div class="stats-grid" style="margin-bottom:1rem">',
     opStat('과정', formatNumber(t.count || 0) + '건',
@@ -7885,7 +7893,9 @@ async function renderOpCosts() {
     ((d.rows || []).length === 0
       ? '<tr><td colspan="9"><div class="empty-state" style="padding:2rem"><p>'
         + (OP.q ? '찾는 과정이 없습니다.'
-                : esc(opMonthLabel(OP.month) || '고르신 달') + '에 교육한 과정이 없습니다.')
+                : (OP.month
+                    ? esc(opMonthLabel(OP.month)) + '에 교육한 과정이 없습니다.'
+                    : '등록된 과정이 없습니다.'))
         + '</p></div></td></tr>'
       : d.rows.map(opProjectRow).join('')),
     '    </tbody>',
@@ -8179,4 +8189,5 @@ function onOpSearch(v) {
   opSearchTimer = setTimeout(function () { OP.open = 0; OP_ITEMS = null; renderOpCosts(); }, 250);
 }
 function setOp(k, v) { OP[k] = v; OP.open = 0; OP_ITEMS = null; renderOpCosts(); }
+/** 조건 지우기 — 달도 「전체」로 (이번 달로 되돌아가면 지운 것이 아니다) */
 function resetOp() { OP.q = ''; OP.month = ''; OP.open = 0; OP_ITEMS = null; renderOpCosts(); }
