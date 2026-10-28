@@ -2836,3 +2836,14 @@ tr.v-done td { background: var(--success-bg); }
 .book-pick-one:hover { background: var(--bg-card-hover); border-color: var(--accent-glow); }
 .book-pick-one .main-text { font-weight: 600; font-size: 0.88rem; }
 .book-pick-one .sub-text { font-size: 0.76rem; color: var(--text-muted); margin-top: 0.15rem; }
+
+/* ── 강사 목록 — 한 분당 한 줄 ──
+ *
+ * 331명을 카드로 늘어놓으니 한 화면에 열 분밖에 안 들어오고
+ * 눈으로 훑기가 어려웠다. 협력사 목록과 같은 표로 바꾼다.
+ * (대표님 지시 2026-10-28)
+ */
+.inst-table .th-r, .inst-table .td-r { text-align: right; white-space: nowrap; }
+.inst-table .inst-code { color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+.inst-table .inst-act { white-space: nowrap; text-align: right; }
+.inst-table .inst-act .btn { margin-left: 0.35rem; }

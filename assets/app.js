@@ -699,6 +699,8 @@ function isTextBox(el) {
   if (el.readOnly) return false;                       // 날짜칸
   if (/-q$/.test(el.id || '')) return false;           // 검색칸 (예전 이름 규칙)
   if (el.closest && el.closest(NOT_UNDOABLE)) return false;
+  if (/검색|찾기/.test(el.placeholder || '')) return false;   // 검색칸
+  if (/^on\w*(Search|Find)\(/.test(el.getAttribute('oninput') || '')) return false;
   return true;
 }
 
@@ -4486,25 +4488,34 @@ async function renderInstructors() {
         아래 <b>[코드 복사]</b>를 누르면 <code>강사코드 · 이름 · 소속</code>이 복사되어 엑셀에 바로 붙여넣을 수 있습니다.
       </div>
       ${findBar('instructors', '이름 · 직함 · 회사명 · 강사코드 검색', shown.length, instructors.length)}
-      ${shown.length === 0
-        ? '<div class="empty-state" style="padding:3rem"><p>'
-          + (FIND.instructors ? '찾는 강사가 없습니다.' : '등록된 강사가 없습니다.') + '</p></div>'
-        : ''}
-      <div class="instructor-grid">
-        ${shown.map(i => `
-          <div class="instructor-card">
-            <div class="name">${i.name} <span class="badge badge-admin">${i.default_tax_type}</span></div>
-            <div class="detail"><span class="label">강사코드</span> <b>${i.id}</b></div>
-            <div class="detail"><span class="label">직함</span> ${i.title || '-'}</div>
-            <div class="detail"><span class="label">회사명</span> ${i.affiliation || '-'}</div>
-            <div class="detail"><span class="label">이메일</span> ${privateCell('inst-' + i.id, i.email, 'email')}</div>
-            <div class="detail"><span class="label">기본단가</span> ${formatNumber(i.default_unit_price)}원</div>
-            <div class="actions" style="display:flex; gap:0.4rem">
-              <button class="btn btn-outline btn-sm" style="flex:1" onclick="copyInstRow(${i.id}, this)">📋 코드 복사</button>
-              <button class="btn btn-ghost btn-sm" style="flex:1" onclick='openInstModal(${JSON.stringify(i).replace(/'/g, "&#39;")})'>정보 수정</button>
-            </div>
-          </div>
-        `).join('')}
+      <div class="table-container">
+        <table class="data-table inst-table">
+          <thead><tr>
+            <th>강사코드</th><th>강사명</th><th>직함</th><th>회사명</th>
+            <th>이메일</th><th class="th-r">기본단가</th><th>세율</th><th></th>
+          </tr></thead>
+          <tbody>
+          ${shown.length === 0
+            ? '<tr><td colspan="8"><div class="empty-state" style="padding:2rem"><p>'
+              + (FIND.instructors ? '찾는 강사가 없습니다.' : '등록된 강사가 없습니다.')
+              + '</p></div></td></tr>'
+            : shown.map(i => `
+              <tr>
+                <td class="inst-code">${i.id}</td>
+                <td style="font-weight:600">${esc(i.name)}</td>
+                <td>${esc(i.title || '-')}</td>
+                <td>${esc(i.affiliation || '-')}</td>
+                <td>${privateCell('inst-' + i.id, i.email, 'email')}</td>
+                <td class="td-r">${formatNumber(i.default_unit_price)}원</td>
+                <td><span class="badge badge-admin">${esc(i.default_tax_type || '-')}</span></td>
+                <td class="inst-act">
+                  <button class="btn btn-outline btn-sm" onclick="copyInstRow(${i.id}, this)">📋 코드 복사</button>
+                  <button class="btn btn-ghost btn-sm" onclick='openInstModal(${JSON.stringify(i).replace(/'/g, "&#39;")})'>✎ 수정</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
       </div>
     `;
   } catch(e) { showToast(e.message, 'error'); }
