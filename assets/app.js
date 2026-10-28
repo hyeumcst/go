@@ -1935,7 +1935,9 @@ async function renderProjectList() {
     '    <input type="text" id="lf-q" class="form-input" placeholder="과정명 · 고객사 · 담당자 · 메모 검색" value="' + esc(LIST.q) + '"'
     + ' oninput="onListSearch(this.value)">',
     '  </div>',
-    '  <select class="form-select" onchange="setListFilter(\'month\', this.value)">',
+    /* 무엇을 기준으로 거르는지 적어 둔다 — 안 적어 두면 왜 안 나오는지 알 수 없다 */
+    '  <select class="form-select" title="교육일정 기준입니다. 교육일정이 없는 건은 세금계산서 발행일로 찾습니다."'
+  + ' onchange="setListFilter(\'month\', this.value)">',
     opt('', '전체 기간', LIST.month),
     LIST.months.map(function (m) { return opt(m, m.replace('-', '년 ') + '월', LIST.month); }).join(''),
     '  </select>',

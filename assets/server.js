@@ -2342,6 +2342,48 @@ function writeExpenses(projectId, expenses) {
 
 /* ═══════════════════════ 엔드포인트 ═══════════════════════ */
 
+/**
+ * 과정마다 가장 이른 세금계산서 발행일 — { 과정번호: 'YYYY-MM-DD' }
+ *
+ * 기간 거르개에서도 쓰이므로 거르기 **전에** 한 번 모아 둔다.
+ */
+function firstIssueMap_() {
+  var m = {};
+  Db.all('project_invoices').forEach(function (i) {
+    if (!i.issue_date) return;
+    if (!m[i.project_id] || i.issue_date < m[i.project_id]) m[i.project_id] = i.issue_date;
+  });
+  return m;
+}
+
+/**
+ * 과정 목록의 기간 거르개 — **교육일정 기준**이다.
+ *
+ * 그런데 교육일정이 아예 없는 과정도 있다. 「기아 / 명패 운영비」 처럼
+ * 교육이 아닌 건이다. 그런 건은 달을 고르는 순간 사라져 버렸다 —
+ * 「전체 기간」 으로 봐야만 보였다. (대표님 지시 2026-10-28)
+ *
+ * 그래서 일정이 없으면 **세금계산서 발행일**로 보고, 그것도 없으면
+ * 등록한 날로 본다. 일정이 있는 과정은 지금까지와 똑같다.
+ */
+function listInPeriod_(p, issue, start, end) {
+  if (schedOf(p).length) return overlapsPeriod(p, start, end);
+  if (!start && !end) return true;
+  var d = String(issue || p.created_at || '').slice(0, 10);
+  if (!d) return false;
+  if (start && d < start) return false;
+  if (end && d > end) return false;
+  return true;
+}
+
+/** 그 과정이 거르개에서 어느 달에 들어가는가 (교육일정이 없으면 발행일) */
+function listMonthsOf_(p, issue) {
+  var ms = monthsOf(p);
+  if (ms.length) return ms;
+  var d = String(issue || p.created_at || '').slice(0, 7);
+  return /^\d{4}-\d{2}$/.test(d) ? [d] : [];
+}
+
 /** 과정 목록 — 검색·월·담당자·회사·구분·정렬 */
 function projectsList(u, q) {
   q = q || {};
@@ -2380,11 +2422,14 @@ function projectsList(u, q) {
     });
   }
 
+  /* 발행일은 기간 거르개에도 쓰이므로 거르기 전에 모아 둔다 */
+  var firstIssue = firstIssueMap_();
+
   var rows = Db.all('projects').filter(function (p) {
     if (noExpense && !noExpense[p.id]) return false;
-    if (!overlapsPeriod(p, q.start_date, q.end_date)) return false;
+    if (!listInPeriod_(p, firstIssue[p.id], q.start_date, q.end_date)) return false;
     if (q.month && /^\d{4}-\d{2}$/.test(q.month)) {
-      if (!overlapsPeriod(p, q.month + '-01', q.month + '-31')) return false;
+      if (!listInPeriod_(p, firstIssue[p.id], q.month + '-01', q.month + '-31')) return false;
     }
     if (q.type && p.type !== q.type) return false;
     if (q.company && p.company !== q.company) return false;
@@ -2506,8 +2551,10 @@ function projectsList(u, q) {
 /** 필터에 쓸 목록 (월 · 담당자 · 회사) */
 function projectsFilters(u) {
   var months = {}, managers = {};
+  /* 교육일정이 없는 과정은 발행일 달로 넣는다 — 안 그러면 고를 수가 없다 */
+  var firstIssue = firstIssueMap_();
   Db.all('projects').forEach(function (p) {
-    monthsOf(p).forEach(function (m) { months[m] = true; });
+    listMonthsOf_(p, firstIssue[p.id]).forEach(function (m) { months[m] = true; });
     if (String(p.manager || '').trim()) managers[p.manager] = true;
   });
   return {
