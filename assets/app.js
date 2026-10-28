@@ -5005,7 +5005,7 @@ function renderPassword() {
     '  <div class="form-group">',
     '    <label class="form-label">새 비밀번호</label>',
     '    ' + pwField('pw-new', { autocomplete: 'new-password' }),
-    '    <p class="form-hint">4자 이상. 길게 하실수록 안전합니다.</p>',
+    '    <p class="form-hint">6자 이상. 길게 하실수록 안전합니다.</p>',
     '  </div>',
     '  <div class="form-group">',
     '    <label class="form-label">새 비밀번호 확인</label>',
@@ -5029,7 +5029,8 @@ async function submitPassword() {
   const again = document.getElementById('pw-new2').value;
 
   if (!oldPw || !newPw) return showToast('비밀번호를 입력해주세요.', 'error');
-  if (newPw.length < 4) return showToast('새 비밀번호는 4자 이상으로 해주세요.', 'error');
+  /* 파이어베이스가 6자 미만은 받지 않는다 — 눌러 보기 전에 여기서 알려드린다 */
+  if (newPw.length < 6) return showToast('새 비밀번호는 6자 이상으로 해주세요.', 'error');
   if (newPw !== again) return showToast('새 비밀번호가 서로 다릅니다.', 'error');
   if (newPw === oldPw) return showToast('지금 쓰는 비밀번호와 같습니다.', 'error');
 
