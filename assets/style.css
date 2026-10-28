@@ -1337,6 +1337,19 @@ code {
 .list-total b.profit { color: var(--pl-accent); }
 .list-total b.unpaid { color: #7C3AED; }
 
+/* 로그인 계정 — 이름이 회사 이름일 때의 안내 */
+.u-hint {
+  margin-top: 0.25rem; font-size: 0.76rem; font-weight: 400;
+  color: var(--danger); line-height: 1.45;
+}
+/*
+ * 안내가 들어가도 이름 칸이 눌리지 않게 너비를 준다.
+ * 칸이 좁으면 글자가 한 자씩 끊겨 읽을 수가 없다.
+ */
+.user-table th:first-child,
+.user-table td:first-child { min-width: 17rem; }
+.user-table .badge { white-space: nowrap; }
+
 /* 안내줄 안의 작은 글씨 단추 — 확인해 둔 건을 다시 불러낸다 */
 .warn-link {
   margin-left: 0.35rem; padding: 0.1rem 0.45rem;

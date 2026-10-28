@@ -244,7 +244,7 @@ SCHEMA.project_visits = [
   { n: 'schedule_type', k: 't' },    // 당일 · 기간 · 차수
   { n: 'schedule_dates', k: 't' },   // [{s,e}, …] 을 글자로
   { n: 'note', k: 't' },
-  { n: 'visited_by', k: 't' },       // 다녀온 사람의 아이디 (huc · sakim · shchoi …)
+  { n: 'visited_by', k: 't' },       // 다녀온 사람의 아이디 (메일 주소의 앞부분)
   { n: 'updated_by', k: 't' },
   { n: 'updated_at', k: 't' },
 ];
@@ -1205,32 +1205,39 @@ function rep(c, n) { var s = ''; for (var i = 0; i < n; i++) s += c; return s; }
 /* ───────────────── 사람 이름 ─────────────────
  *
  * 교육진행처럼 「누가 갔는지」를 보여줄 때 쓴다.
- *
- * 계정에 적힌 이름이 사람 이름이 아닌 경우가 있다 (huc 가 「혜움컨설팅」).
- * 시트를 고치지 않고도 바르게 보이도록, 아이디로 한 번 바로잡는다.
- * (대표님 알려주심 2026-10-26)
  */
-var PERSON_NAME = {
-  huc: '임영환',
-  sakim: '김소애',
-  shchoi: '최선화'
-};
+/*
+ * ⚠ 아이디→이름 표를 여기에 적지 않는다.
+ *
+ * 이 파일은 깃허브 페이지로 묶여 나가 **누구나 내려받는다**.
+ * 전에는 여기에 아이디와 사람 이름이 나란히 적혀 있어서, 로그인
+ * 아이디가 그대로 공개돼 있었다. (대표님 지시 2026-10-28)
+ *
+ * 그래서 이름은 **계정 표(users)** 에서 읽는다. 계정 표는 로그인해야
+ * 읽을 수 있으므로 밖으로 새지 않는다.
+ *
+ * 계정에 적힌 이름이 사람 이름이 아니면(회사 이름 등) 「로그인 계정」
+ * 화면에서 고쳐 주시면 된다 — 거기에 안내가 나온다.
+ */
 
-/** 아이디의 앞부분 (huc@hyeumcst.co.kr → huc) */
+/** 아이디의 앞부분 (hong@hyeumcst.co.kr → hong) */
 function userKey_(username) {
   return String(username || '').split('@')[0].trim().toLowerCase();
-}
-
-/** 지금 로그인한 사람의 이름 */
-function personName(u) {
-  if (!u) return '';
-  return PERSON_NAME[userKey_(u.username)] || u.name || userKey_(u.username);
 }
 
 /** 적어 둔 아이디로 이름을 찾는다 (없으면 예전에 적어 둔 이름을 쓴다) */
 function personNameOf(username, fallback) {
   var k = userKey_(username);
-  return PERSON_NAME[k] || fallback || username || '';
+  if (!k) return fallback || '';
+  var r = Db.first('users', function (x) { return userKey_(x.username) === k; });
+  var nm = r ? String(r.name || '').trim() : '';
+  return nm || fallback || username || '';
+}
+
+/** 지금 로그인한 사람의 이름 */
+function personName(u) {
+  if (!u) return '';
+  return personNameOf(u.username, u.name) || userKey_(u.username);
 }
 
 
@@ -1417,8 +1424,15 @@ function checkDropFor_(kind, refId) {
  *   권한이 바뀌면 편집기에서 한 번 [허용] 을 눌러 주셔야 한다.
  */
 
-/** 세금계산서 발행 담당 — 여기로 요청이 간다 (대표님 지정 2026-10-26) */
-var INVOICE_REQUEST_TO = ['sakim', 'huc'];
+/*
+ * 세금계산서 발행 담당 — 여기로 요청이 간다.
+ *
+ * ⚠ 아이디를 코드에 적지 않는다. 이 파일은 깃허브로 누구나 내려받으므로
+ *   적어 두면 로그인 아이디가 그대로 공개된다. (대표님 지시 2026-10-28)
+ *
+ * 대신 **지금 살아 있는 관리자 계정**으로 보낸다. 담당이 바뀌어도
+ * 「로그인 계정」 화면에서 관리자만 지정해 주시면 따라간다.
+ */
 
 /** 회사 메일 주소의 뒷부분 */
 var MAIL_DOMAIN = '@hyeumcst.co.kr';
@@ -1435,13 +1449,16 @@ function mailOf_(key) {
   return k + MAIL_DOMAIN;
 }
 
-/** 담당자들의 메일 주소 */
+/** 담당자들의 메일 주소 — 살아 있는 관리자 계정 */
 function invoiceRequestTo_() {
   var seen = {}, out = [];
-  INVOICE_REQUEST_TO.forEach(function (k) {
-    var m = mailOf_(k);
-    if (m && !seen[m]) { seen[m] = true; out.push(m); }
-  });
+  Db.where('users', function (x) { return x.is_active && x.role === 'admin'; })
+    .slice()
+    .sort(function (a, b) { return (a.id || 0) - (b.id || 0); })
+    .forEach(function (x) {
+      var m = mailOf_(x.username);
+      if (m && !seen[m]) { seen[m] = true; out.push(m); }
+    });
   return out;
 }
 
@@ -1943,7 +1960,7 @@ function visitsList(u, q) {
 }
 
 /**
- * 사람별로 묶는다 — 「임영환 2개 과정 · 5일」 처럼 보여주려고.
+ * 사람별로 묶는다 — 「홍길동 2개 과정 · 5일」 처럼 보여주려고.
  * 많이 다닌 사람을 앞에 둔다.
  */
 function byPerson_(rows, daysOf) {
@@ -1967,8 +1984,9 @@ function byPerson_(rows, daysOf) {
  * 계정 표에서 가져오되 아이디와 이름만 내놓는다.
  * (비밀번호 해시 같은 것이 섞여 나가면 안 된다)
  *
- * 대표님이 알려주신 세 사람(PERSON_NAME)은 계정이 아직 없어도 넣는다.
- * 계정을 만들기 전에도 「누가 갔는지」는 적어 둘 수 있어야 하기 때문이다.
+ * 계정이 있는 사람만 나온다. 전에는 코드에 적어 둔 세 사람을 계정이
+ * 없어도 넣었는데, 그 표가 공개 파일로 나가 아이디와 이름이 드러났다.
+ * 이제는 계정을 먼저 만들어 주셔야 고를 수 있다. (대표님 지시 2026-10-28)
  */
 function visitPeople_() {
   var seen = {}, out = [];
@@ -1980,18 +1998,11 @@ function visitPeople_() {
     out.push({ key: k, name: personNameOf(x.username, x.name) });
   });
 
-  Object.keys(PERSON_NAME).forEach(function (k) {
-    if (seen[k]) return;
-    seen[k] = true;
-    out.push({ key: k, name: PERSON_NAME[k] });
-  });
-
   return out.sort(function (a, b) { return cmp_(a.name, b.name); });
 }
 
 /** 교육진행에 적을 수 있는 사람인지 */
 function knownPerson_(key) {
-  if (PERSON_NAME[key]) return true;
   return !!Db.first('users', function (x) {
     return x.is_active && userKey_(x.username) === key;
   });
@@ -7298,7 +7309,7 @@ function fbForget() {
  *   저장 한 번 할 때마다     0건
  *   하루                  약 3,000건
  *
- * 덤으로 더 좋아진다 — 김소애 님이 고친 것이 임영환 님 화면에
+ * 덤으로 더 좋아진다 — 한 사람이 고친 것이 다른 사람 화면에
  * 곧바로 들어온다. 전에는 최대 1분 늦게 보였다.
  */
 

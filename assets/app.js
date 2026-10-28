@@ -65,8 +65,14 @@ function showScreen() {
 const COMPANIES = ['혜움컨설팅', '그로우인'];
 const DEFAULT_COMPANY = COMPANIES[0];
 
-let HYEUM_MANAGERS = ['김소애', '임영환', '최선화'];
-let SALES_REPS = ['김동한', '김성민'];
+/*
+ * 담당자·영업 명단.
+ *
+ * ⚠ 이름을 여기에 적어 두지 않는다 — 이 파일은 누구나 내려받는다.
+ *   들어가자마자 서버에서 받아 채운다. (대표님 지시 2026-10-28)
+ */
+let HYEUM_MANAGERS = [];
+let SALES_REPS = [];
 
 /** 명단을 한 번 받아 위 두 배열을 채운다 */
 async function loadStaffNames() {
@@ -329,11 +335,11 @@ function siteLabel() {
  */
 /*
  * 지금 로그인한 사람의 이름.
- * 계정에 적힌 이름이 사람 이름이 아닌 경우가 있어(huc → 혜움컨설팅)
- * 아이디로 한 번 바로잡는다. 서버의 personName() 과 같은 표다.
+ *
+ * ⚠ 아이디→이름 표를 여기에 적지 않는다. 이 파일은 깃허브로 누구나
+ *   내려받으므로, 적어 두면 로그인 아이디가 그대로 공개된다.
+ *   이름은 계정에 적힌 것을 쓴다. (대표님 지시 2026-10-28)
  */
-const PERSON_NAME = { huc: '임영환', sakim: '김소애', shchoi: '최선화' };
-
 function myKey() {
   const u = API.getUser() || {};
   return String(u.username || '').split('@')[0].trim().toLowerCase();
@@ -341,8 +347,7 @@ function myKey() {
 
 function myName() {
   const u = API.getUser() || {};
-  const key = myKey();
-  return PERSON_NAME[key] || u.name || key;
+  return (u.name || '').trim() || myKey();
 }
 
 function isAdminView() {
@@ -425,7 +430,7 @@ function initLogin() {
             <div class="id-field">
               <input type="text" id="username" class="form-input" required
                      autocomplete="username" autocapitalize="off" spellcheck="false"
-                     placeholder="huc">
+                     placeholder="hong">
               <span class="id-domain">${MAIL_DOMAIN}</span>
             </div>
           </div>
@@ -1785,7 +1790,7 @@ async function deleteVisit(projectId) {
 }
 
 /**
- * 「임영환 2개 과정 · 5일」 처럼 사람별로 한 줄씩.
+ * 「홍길동 2개 과정 · 5일」 처럼 사람별로 한 줄씩.
  * 아무도 안 다녀왔으면 몇 개 과정인지만 보여준다.
  */
 function peopleLine(byPerson, projects) {
@@ -5105,13 +5110,24 @@ async function renderUsers() {
     '비밀번호는 알아볼 수 없는 형태로만 저장됩니다. 그래서 <b>여기서도 볼 수 없고</b>, ',
     '잊어버렸을 때는 [비밀번호] 버튼으로 <b>새로 정해주시면</b> 됩니다.',
     '</span></div>',
-    '<div class="table-container"><table class="data-table">',
+    '<div class="table-container"><table class="data-table user-table">',
     '<thead><tr><th>이름</th><th>아이디</th><th class="th-mid">권한</th>',
     '<th class="th-mid">상태</th><th>최근 로그인</th><th style="width:13rem"></th></tr></thead><tbody>',
     res.users.map(function (u) {
       const mine = u.id === me.id;
       return '<tr>'
-        + '<td style="font-weight:600">' + esc(u.name || '') + (mine ? ' <span class="side-badge">나</span>' : '') + '</td>'
+        + '<td style="font-weight:600">' + esc(u.name || '') + (mine ? ' <span class="side-badge">나</span>' : '')
+        /*
+         * 이름이 회사 이름으로 되어 있으면 알려 준다.
+         * 이 이름이 교육진행·발행요청에 그대로 나오기 때문이다.
+         * (전에는 코드에 적어 둔 표로 가렸는데, 그 표가 공개 파일로
+         *  나가 아이디까지 드러났다 — 대표님 지시 2026-10-28)
+         */
+        + (COMPANIES.indexOf(String(u.name || '').trim()) >= 0
+            ? '<div class="u-hint">회사 이름으로 되어 있습니다 — [수정]에서 <b>사람 이름</b>으로 고쳐 주세요.'
+              + ' 교육진행·발행요청에 이 이름이 그대로 나옵니다.</div>'
+            : '')
+        + '</td>'
         + '<td>' + esc(u.username || '') + '</td>'
         + '<td class="c-mid"><span class="badge ' + (u.role === 'admin' ? 'badge-admin' : 'badge-user') + '">'
         +   (u.role === 'admin' ? '관리자' : '직원') + '</span></td>'
@@ -7325,7 +7341,7 @@ function formReqBtn(it) {
       + ' onclick="requestFromForm(' + it.id + ', true)">✓ 요청함' + more + '</button>';
   }
   return '<button type="button" class="btn btn-primary btn-sm inv-req"'
-    + ' title="김소애 · 임영환 님께 발행요청 메일을 보냅니다"'
+    + ' title="세금계산서 담당자(관리자 계정)에게 발행요청 메일을 보냅니다"'
     + ' onclick="requestFromForm(' + it.id + ', false)">발행요청</button>';
 }
 
@@ -7334,7 +7350,7 @@ async function requestFromForm(invoiceId, again) {
   const it = State.invoices.filter(function (x) { return x.id === invoiceId; })[0] || {};
   const ask = again
     ? '이미 ' + (it.requested_at ? it.requested_at + ' 에 ' : '') + '요청했습니다.\n다시 보낼까요?'
-    : '김소애 · 임영환 님께 발행요청 메일을 보낼까요?';
+    : '세금계산서 담당자에게 발행요청 메일을 보낼까요?';
   if (!confirm(ask)) return;
 
   const note = prompt('함께 남길 말이 있으면 적어주세요. (없으면 그냥 확인)', '');
@@ -7636,7 +7652,7 @@ function openCardModal(id, presetLast4) {
     '      </div>',
     '      <div class="form-row">',
     '        <div class="form-group"><label class="form-label">소지자 <span style="font-weight:400;color:var(--text-muted)">(발급받은 사람)</span></label>',
-    '          <input type="text" id="cd-holder" class="form-input" placeholder="예) 임영환"',
+    '          <input type="text" id="cd-holder" class="form-input" placeholder="예) 홍길동"',
     '            value="' + esc(c ? c.holder : '') + '"></div>',
     '        <div class="form-group"><label class="form-label">회사</label>',
     '          <select id="cd-company" class="form-select">',
