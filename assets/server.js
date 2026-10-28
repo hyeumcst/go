@@ -4456,7 +4456,7 @@ function bookRowOf_(p, rec, clientName) {
     vendor: rec ? (rec.vendor || '') : '',
     bill_month: rec ? (rec.bill_month || '') : '',
     note: rec ? (rec.note || '') : '',
-    /* 남는 것. 아직 안 적었으면 셈하지 않는다 (0 으로 보이면 오해한다) */
+    /* 이익 = 받는 돈 − 주는 돈. 아직 안 적었으면 셈하지 않는다 (0 으로 보이면 오해한다) */
     margin: (paid === null) ? null : (sales.total - paid)
   };
 }
@@ -4464,7 +4464,7 @@ function bookRowOf_(p, rec, clientName) {
 /**
  * 교재비 목록.
  *
- * @param q  { month: 'YYYY-MM' 견적서 달로 거르기, q: 글자 찾기 }
+ * @param q  { month: 'YYYY-MM' 견적서 월로 거르기, q: 글자 찾기 }
  */
 function bookCostsList(u, q) {
   requireAdmin(u);
@@ -4506,7 +4506,7 @@ function bookCostsList(u, q) {
     return b.project_id - a.project_id;
   });
 
-  /* 견적서 달 고르는 칸에 쓸 목록 */
+  /* 견적서 월 고르는 칸에 쓸 목록 */
   var months = {};
   Db.all('book_costs').forEach(function (r) {
     if (r.bill_month) months[r.bill_month] = true;
@@ -4532,7 +4532,7 @@ function bookCostsList(u, q) {
 function cleanBook_(b) {
   var m = String((b && b.bill_month) || '').trim();
   if (m && !/^\d{4}-\d{2}$/.test(m)) {
-    throw new Error('견적서 달은 2026-11 처럼 적어주세요.');
+    throw new Error('견적서 월은 2026-11 처럼 적어주세요.');
   }
   return {
     amount: parseInt(b && b.amount, 10) || 0,
@@ -4613,6 +4613,44 @@ function bookCostsPick(u, q) {
   });
 
   return { projects: rows };
+}
+
+/*
+ * 인쇄업체 목록 — 교재를 찍는 협력사만 추려 준다.
+ *
+ * 대표님 지시 (2026-10-28)
+ *   "인쇄업체는 협력사중에서 열린길과 태진미디어라고 있을 거야.
+ *    나중에 협력사 등록 시 교재라는 단어가 있으면 자동으로 추가시켜줘"
+ *
+ * 이름을 코드에 박아 두면 새 업체가 생길 때마다 고쳐야 한다.
+ * 그래서 「교재」 라는 낱말로 고른다 — 협력사명 · 분류 · 비고 어디든.
+ *
+ * 지금 자료로 보면 이렇게 걸린다
+ *   열린길_교재,디자인   이름에 「교재」
+ *   태진애드컴          비고에 「교재업체」
+ * 둘 다 들어오고, 앞으로 교재라고 적어 등록하시면 저절로 따라온다.
+ */
+function bookVendors(u) {
+  requireAdmin(u);
+  var hit = function (p) {
+    return [p.name, p.category, p.note].some(function (v) {
+      return String(v || '').indexOf(BOOK_WORD) >= 0;
+    });
+  };
+  var names = Db.where('partners', function (p) { return p.is_active && hit(p); })
+    .sort(byName_)
+    .map(function (p) { return p.name; });
+
+  /*
+   * 이미 적어 두신 업체는 목록에 없더라도 넣어 준다.
+   * 안 그러면 협력사에서 「교재」를 지우는 순간 적어 둔 값이 사라져 보인다.
+   */
+  Db.all('book_costs').forEach(function (r) {
+    var v = String(r.vendor || '').trim();
+    if (v && names.indexOf(v) < 0) names.push(v);
+  });
+
+  return { vendors: names };
 }
 
 
@@ -6820,6 +6858,7 @@ function route_(u, method, path, b, q) {
   /* ───── 교재비 (관리자만) ───── */
   if (head === 'book-costs') {
     if (GET && a === 'pick') return bookCostsPick(u, q);
+    if (GET && a === 'vendors') return bookVendors(u);
     if (GET && !a) return bookCostsList(u, q);
     if (PUT && a) return bookCostsSave(u, a, b);
     if (DEL && a) return bookCostsDelete(u, a);

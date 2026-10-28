@@ -2682,22 +2682,31 @@ tr.v-done td { background: var(--success-bg); }
 
 /* ── 되돌리기 띠 ── */
 .undo-bar {
-  /* 화면 맨 아래에 뒀더니 못 보고 지나치셨다 — 알림과 같은 위쪽으로 올린다.
-     알림(위 1.25rem)보다 조금 아래에 두어 둘이 겹치지 않게 한다. */
-  position: fixed; left: 50%; top: 4.75rem; transform: translateX(-50%) translateY(-0.5rem);
-  display: none; align-items: center; gap: 0.75rem;
-  padding: 0.7rem 0.8rem 0.7rem 1.1rem;
+  /*
+   * 화면 맨 아래에 뒀을 때도, 맨 위로 올렸을 때도 못 보고 지나치셨다.
+   * 자리 문제가 아니라 **너무 작아서**였다 (287×49px 짜리 띠).
+   * 긴 과정등록 화면 아래쪽에서 ✖ 를 누르면 반대쪽 끝에 조그맣게 떴다.
+   *
+   * 알림과 같은 크기로 화면 한가운데에 띄운다. 알림은 50% 에 있으므로
+   * 조금 아래(62%)에 두어 둘이 같이 떠도 겹치지 않게 한다.
+   * (대표님 지시 2026-10-28)
+   */
+  position: fixed; left: 50%; top: 62%; transform: translate(-50%, -50%) scale(0.92);
+  display: none; align-items: center; gap: 1rem;
+  padding: 1.1rem 1.1rem 1.1rem 1.6rem;
   background: var(--text-primary); color: var(--bg-card);
-  border-radius: 999px; box-shadow: var(--shadow-md);
-  font-size: 0.85rem; z-index: 2000;
+  border-radius: 1rem;
+  box-shadow: 0 1.5rem 3rem rgba(0, 0, 0, 0.3), 0 0 0 0.5rem rgba(0, 0, 0, 0.06);
+  font-size: clamp(0.95rem, 3vw, 1.25rem); font-weight: 600;
+  max-width: min(90vw, 40rem); z-index: 2001;
   opacity: 0; transition: opacity var(--transition-fast), transform var(--transition-fast);
 }
-.undo-bar.on { display: flex; opacity: 1; transform: translateX(-50%) translateY(0); }
-.undo-bar .t { white-space: nowrap; }
+.undo-bar.on { display: flex; opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.undo-bar .t { white-space: normal; }
 .undo-bar .go {
   border: none; background: var(--accent); color: #fff;
-  padding: 0.35rem 0.8rem; border-radius: 999px;
-  font-family: inherit; font-size: 0.82rem; font-weight: 700; cursor: pointer;
+  padding: 0.6rem 1.2rem; border-radius: 999px; white-space: nowrap;
+  font-family: inherit; font-size: 0.95em; font-weight: 700; cursor: pointer;
 }
 .undo-bar .go:hover { filter: brightness(1.1); }
 .undo-bar .x {
@@ -2803,10 +2812,10 @@ tr.v-done td { background: var(--success-bg); }
    매출에 적힌 교재비(받는 돈)와 인쇄업체에 드린 돈(주는 돈)을
    한 줄에 나란히 놓고 봅니다. (대표님 지시 2026-10-28) */
 .book-table td { vertical-align: middle; }
-.book-table .form-input { padding: 0.4rem 0.55rem; font-size: 0.82rem; min-width: 0; }
+.book-table .form-input, .book-table .form-select { padding: 0.4rem 0.55rem; font-size: 0.82rem; min-width: 0; }
 .book-table .book-amt { width: 7.5rem; font-weight: 700; }
-.book-table .book-vendor { width: 8rem; }
-.book-table .book-month { width: 5.5rem; }
+.book-table .book-vendor { width: 9.5rem; }
+.book-table .book-month { width: 8rem; }
 .book-table .book-note { width: 9rem; }
 .book-table .ta-r { text-align: right; }
 .book-table .ta-c { text-align: center; }

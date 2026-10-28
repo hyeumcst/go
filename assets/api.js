@@ -267,6 +267,7 @@ const API = {
   /* ───── 교재비 (관리자만) ───── */
   getBookCosts(params = {}) { return this.get('/book-costs' + this.qs(params)); },
   pickBookProject(q) { return this.get('/book-costs/pick' + this.qs({ q: q })); },
+  getBookVendors() { return this.get('/book-costs/vendors'); },
   saveBookCost(projectId, data) { return this.put('/book-costs/' + projectId, data); },
   deleteBookCost(projectId) { return this.delete('/book-costs/' + projectId); },
 

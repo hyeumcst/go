@@ -672,14 +672,33 @@ function hideUndo() {
 const TEXT_UNDO = { el: null, at: new WeakMap() };
 
 /** 글을 적는 칸인가 (날짜칸·검색칸은 지워도 잃을 것이 없다) */
+/*
+ * 되돌리기를 띄울 만한 칸인가.
+ *
+ * 「적어 두신 것」이 들어 있는 칸만 해당한다. 검색칸은 지워도 잃을 것이
+ * 없으므로 빼야 한다.
+ *
+ * 전에는 id 끝이 '-q' 인지만 보았다. 그런데 화면마다 검색칸 이름이 달라서
+ * (find-partner · book-pick-q …) 몇몇이 걸러지지 않았고, 거기서 지우개를
+ * 누르면 엉뚱하게 되돌리기가 떴다. (대표님이 겪으심 2026-10-28)
+ *
+ * 이름으로 가려내면 화면을 더할 때마다 또 빠진다.
+ * 그래서 **어디에 들어 있는 칸인지**로 가려낸다 — 검색·거르기 줄 안의
+ * 칸은 모두 검색칸이다. 새 화면을 만들어도 같은 모양을 쓰면 저절로 걸러진다.
+ */
+const NOT_UNDOABLE = '.f-search, .list-filter, .find-bar, .filter-bar, .autocomplete-list';
+
 function isTextBox(el) {
   if (!el || !el.tagName) return false;
   const tag = el.tagName.toLowerCase();
   if (tag === 'textarea') return true;
   if (tag !== 'input') return false;
-  if ((el.type || 'text').toLowerCase() !== 'text') return false;
+  const type = (el.type || 'text').toLowerCase();
+  if (type === 'search') return false;                 // 검색칸
+  if (type !== 'text') return false;
   if (el.readOnly) return false;                       // 날짜칸
-  if (/-q$/.test(el.id || '')) return false;           // 검색칸
+  if (/-q$/.test(el.id || '')) return false;           // 검색칸 (예전 이름 규칙)
+  if (el.closest && el.closest(NOT_UNDOABLE)) return false;
   return true;
 }
 
@@ -7661,6 +7680,27 @@ async function deleteCard(id) {
  * 관리자만 씁니다.
  */
 const BOOK = { month: '', q: '' };
+/* 인쇄업체 목록 — 협력사 가운데 「교재」 가 붙은 곳 (서버가 추려 준다) */
+let BOOK_VENDORS = [];
+
+/*
+ * 견적서 월 고르는 칸에 넣을 달들.
+ *
+ * 2026년 1월부터 「올해 다음 해 12월」까지 만든다. 해가 바뀌면 저절로
+ * 늘어나므로 손볼 일이 없다. (대표님 지시 2026-10-28)
+ */
+function bookMonths() {
+  const to = new Date().getFullYear() + 1;
+  const out = [];
+  for (let y = 2026; y <= to; y++) {
+    for (let m = 1; m <= 12; m++) out.push(y + '-' + String(m).padStart(2, '0'));
+  }
+  return out.reverse();                 // 최근 달이 위로
+}
+function bookMonthLabel(v) {
+  const m = String(v || '').match(/^(\d{4})-(\d{2})$/);
+  return m ? (m[1] + '년 ' + Number(m[2]) + '월') : String(v || '');
+}
 
 async function renderBookCosts() {
   if (!API.isAdmin()) return showToast('관리자만 사용할 수 있습니다.', 'error');
@@ -7668,8 +7708,14 @@ async function renderBookCosts() {
   const content = document.getElementById('main-content');
 
   let d;
-  try { d = await API.getBookCosts(BOOK); }
-  catch (e) { showToast(e.message, 'error'); return; }
+  try {
+    const [rows, v] = await Promise.all([
+      API.getBookCosts(BOOK),
+      API.getBookVendors().catch(function () { return { vendors: [] }; })
+    ]);
+    d = rows;
+    BOOK_VENDORS = v.vendors || [];
+  } catch (e) { showToast(e.message, 'error'); return; }
 
   const t = d.totals || {};
   const opt = (v, label, cur) =>
@@ -7681,7 +7727,7 @@ async function renderBookCosts() {
     '  <div><h2>교재비</h2>',
     '    <div class="subtitle">인쇄업체에 실제로 드린 돈을 과정별로 적어 둡니다.',
     '      매출에 적힌 교재비는 <b>받는 돈</b>, 여기 적는 것은 <b>주는 돈</b>입니다.',
-    '      인쇄업체 견적서가 월말에 한 장으로 오므로, 견적서 달을 적어 두면 달마다 맞춰 볼 수 있습니다.</div></div>',
+    '      인쇄업체 견적서가 월말에 한 장으로 오므로, 견적서 월을 적어 두면 달마다 맞춰 볼 수 있습니다.</div></div>',
     '  <button class="btn btn-primary" onclick="openBookPick()">＋ 과정 추가</button>',
     '</div>',
 
@@ -7691,8 +7737,8 @@ async function renderBookCosts() {
     '      value="' + esc(BOOK.q) + '" oninput="onBookSearch(this.value)">',
     '  </div>',
     '  <select class="form-select" onchange="setBook(\'month\', this.value)">',
-    opt('', '견적서 달 전체', BOOK.month),
-    (d.months || []).map(m => opt(m, m.replace('-', '년 ') + '월', BOOK.month)).join(''),
+    opt('', '견적서 월 전체', BOOK.month),
+    bookMonths().map(m => opt(m, bookMonthLabel(m), BOOK.month)).join(''),
     '  </select>',
     ((BOOK.q || BOOK.month) ? '<button class="btn btn-ghost btn-sm" onclick="resetBook()">✕ 조건 지우기</button>' : ''),
     '</div>',
@@ -7704,7 +7750,7 @@ async function renderBookCosts() {
     bookStat('매출의 교재비', formatNumber(t.sales || 0) + '원', '고객사에 받는 돈'),
     bookStat('실제 교재비', formatNumber(t.paid || 0) + '원',
       BOOK.month ? '이 달 견적서와 맞춰 보세요' : '인쇄업체에 주는 돈'),
-    bookStat('남는 것', formatNumber(t.margin || 0) + '원', '받는 돈 − 주는 돈',
+    bookStat('이익', formatNumber(t.margin || 0) + '원', '받는 돈 − 주는 돈',
       (t.margin || 0) < 0 ? 'danger' : ''),
     '</div>',
 
@@ -7728,8 +7774,8 @@ function bookTable(rows) {
     '<thead><tr>',
     '  <th>과정</th><th>고객사</th>',
     '  <th>매출의 교재 항목</th><th class="th-r">매출 금액</th>',
-    '  <th class="th-r">실제 교재비</th><th class="th-r">남는 것</th>',
-    '  <th>인쇄업체</th><th>견적서 달</th><th>비고</th><th></th>',
+    '  <th class="th-r">실제 교재비</th><th class="th-r">이익</th>',
+    '  <th>인쇄업체</th><th>견적서 월</th><th>비고</th><th></th>',
     '</tr></thead><tbody>',
     rows.map(bookRow).join(''),
     '</tbody></table></div>'
@@ -7750,6 +7796,7 @@ function bookRow(r) {
       }).join('')
     : '<span class="muted">매출에 없습니다</span>';
 
+  /* 이익 = 고객사에 받는 돈 − 인쇄업체에 주는 돈 */
   const margin = (r.margin === null || r.margin === undefined)
     ? '<span class="muted">-</span>'
     : '<span class="' + (r.margin < 0 ? 'neg' : '') + '">' + formatNumber(r.margin) + '</span>';
@@ -7767,10 +7814,8 @@ function bookRow(r) {
     +   ' onblur="this.value=this.value?formatNumber(parseNumber(this.value)):\'\'"'
     +   ' onchange="saveBook(' + p + ', this)"></td>'
     + '<td class="ta-r">' + margin + '</td>'
-    + '<td><input type="text" class="form-input book-vendor" value="' + esc(r.vendor || '') + '"'
-    +   ' placeholder="인쇄업체" onchange="saveBook(' + p + ', this)"></td>'
-    + '<td><input type="text" class="form-input book-month" value="' + esc(r.bill_month || '') + '"'
-    +   ' placeholder="2026-11" maxlength="7" onchange="saveBook(' + p + ', this)"></td>'
+    + '<td>' + bookVendorPick(p, r.vendor || '') + '</td>'
+    + '<td>' + bookMonthPick(p, r.bill_month || '') + '</td>'
     + '<td><input type="text" class="form-input book-note" value="' + esc(r.note || '') + '"'
     +   ' placeholder="비고" onchange="saveBook(' + p + ', this)"></td>'
     + '<td class="ta-c">'
@@ -7778,6 +7823,37 @@ function bookRow(r) {
     +     ' onclick="removeBook(' + p + ')">✖</button>' : '')
     + '</td>'
     + '</tr>';
+}
+
+/*
+ * 인쇄업체 고르기.
+ * 협력사 가운데 「교재」 가 붙은 곳만 나온다 (서버가 추려 준다).
+ * 새 업체는 협력사에 교재라고 적어 등록하시면 저절로 여기 들어온다.
+ */
+function bookVendorPick(projectId, cur) {
+  const list = BOOK_VENDORS.slice();
+  /* 적어 둔 업체가 목록에 없더라도 지워지지 않게 넣어 둔다 */
+  if (cur && list.indexOf(cur) < 0) list.push(cur);
+  return '<select class="form-select book-vendor" onchange="saveBook(' + projectId + ', this)">'
+    + '<option value=""' + (cur ? '' : ' selected') + '>고르세요</option>'
+    + list.map(function (v) {
+        return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>'
+          + esc(v) + '</option>';
+      }).join('')
+    + '</select>';
+}
+
+/** 견적서 월 고르기 — 2026년 1월부터, 해가 바뀌면 저절로 늘어난다 */
+function bookMonthPick(projectId, cur) {
+  const list = bookMonths();
+  if (cur && list.indexOf(cur) < 0) list.unshift(cur);
+  return '<select class="form-select book-month" onchange="saveBook(' + projectId + ', this)">'
+    + '<option value=""' + (cur ? '' : ' selected') + '>고르세요</option>'
+    + list.map(function (v) {
+        return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>'
+          + bookMonthLabel(v) + '</option>';
+      }).join('')
+    + '</select>';
 }
 
 /** 한 줄의 네 칸을 함께 보낸다 — 한 칸만 고쳐도 나머지가 지워지면 안 된다 */
