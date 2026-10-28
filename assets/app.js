@@ -781,6 +781,7 @@ function initApp() {
             item('tax', '세금계산서')
           ])}
           ${section('기타 세부관리', [
+            item('book-costs', '교재비'),
             item('ent-client', '고객사'),
             item('ent-instructor', '강사별 매입'),
             item('ent-partner', '협력사별 매입'),
@@ -1025,6 +1026,7 @@ function navigate(route, params = null) {
     case 'visits': renderVisits(); break;
     case 'tax': renderTax(); break;
     case 'overheads': renderOverheads(); break;
+    case 'book-costs': renderBookCosts(); break;
     case 'ent-client': renderEntity('client'); break;
     case 'ent-instructor': renderEntity('instructor'); break;
     case 'ent-partner': renderEntity('partner'); break;
@@ -7639,5 +7641,242 @@ async function deleteCard(id) {
       : '지웠습니다.', 'success');
     loadCardList();
     renderCards();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+
+// ═══════════ 교재비 ═══════════
+/*
+ * 인쇄업체에 실제로 드린 돈을 과정별로 적어 둡니다.
+ * (대표님 지시 2026-10-28)
+ *
+ * 왜 따로 두는가
+ *   매출에 적힌 교재비는 고객사에 **받는** 돈이고, 여기 적는 것은
+ *   인쇄업체에 **주는** 돈입니다. 둘은 다르고 보통 맞지도 않습니다.
+ *
+ *   인쇄업체는 월말에 견적서 한 장으로 묶어서 보냅니다. 그 한 장을
+ *   과정별로 쪼개 적어 두어야, 달이 끝났을 때 합계가 견적서와
+ *   맞는지 볼 수 있습니다.
+ *
+ * 관리자만 씁니다.
+ */
+const BOOK = { month: '', q: '' };
+
+async function renderBookCosts() {
+  if (!API.isAdmin()) return showToast('관리자만 사용할 수 있습니다.', 'error');
+  REDRAW = renderBookCosts;
+  const content = document.getElementById('main-content');
+
+  let d;
+  try { d = await API.getBookCosts(BOOK); }
+  catch (e) { showToast(e.message, 'error'); return; }
+
+  const t = d.totals || {};
+  const opt = (v, label, cur) =>
+    '<option value="' + esc(v) + '"' + (String(cur) === String(v) ? ' selected' : '') + '>'
+    + esc(label) + '</option>';
+
+  content.innerHTML = [
+    '<div class="page-header">',
+    '  <div><h2>교재비</h2>',
+    '    <div class="subtitle">인쇄업체에 실제로 드린 돈을 과정별로 적어 둡니다.',
+    '      매출에 적힌 교재비는 <b>받는 돈</b>, 여기 적는 것은 <b>주는 돈</b>입니다.',
+    '      인쇄업체 견적서가 월말에 한 장으로 오므로, 견적서 달을 적어 두면 달마다 맞춰 볼 수 있습니다.</div></div>',
+    '  <button class="btn btn-primary" onclick="openBookPick()">＋ 과정 추가</button>',
+    '</div>',
+
+    '<div class="list-filter">',
+    '  <div class="f-search">',
+    '    <input type="text" id="book-q" class="form-input" placeholder="과정명 · 고객사 검색"',
+    '      value="' + esc(BOOK.q) + '" oninput="onBookSearch(this.value)">',
+    '  </div>',
+    '  <select class="form-select" onchange="setBook(\'month\', this.value)">',
+    opt('', '견적서 달 전체', BOOK.month),
+    (d.months || []).map(m => opt(m, m.replace('-', '년 ') + '월', BOOK.month)).join(''),
+    '  </select>',
+    ((BOOK.q || BOOK.month) ? '<button class="btn btn-ghost btn-sm" onclick="resetBook()">✕ 조건 지우기</button>' : ''),
+    '</div>',
+
+    /* 달을 고르셨으면 그 달 견적서와 맞춰 보는 줄 */
+    '<div class="stats-grid" style="margin-bottom:1rem">',
+    bookStat('과정', formatNumber(t.count || 0) + '건',
+      (t.filled || 0) + '건 적음 · ' + ((t.count || 0) - (t.filled || 0)) + '건 남음'),
+    bookStat('매출의 교재비', formatNumber(t.sales || 0) + '원', '고객사에 받는 돈'),
+    bookStat('실제 교재비', formatNumber(t.paid || 0) + '원',
+      BOOK.month ? '이 달 견적서와 맞춰 보세요' : '인쇄업체에 주는 돈'),
+    bookStat('남는 것', formatNumber(t.margin || 0) + '원', '받는 돈 − 주는 돈',
+      (t.margin || 0) < 0 ? 'danger' : ''),
+    '</div>',
+
+    (d.rows || []).length
+      ? bookTable(d.rows)
+      : '<div class="empty-state"><p>적을 과정이 없습니다. 매출에 교재가 있는 과정이 여기 나옵니다.</p>'
+        + '<p class="form-hint">매출에 없더라도 <b>＋ 과정 추가</b> 로 고르실 수 있습니다.</p></div>'
+  ].join('');
+}
+
+function bookStat(label, value, hint, kind) {
+  return '<div class="stat-card' + (kind ? ' ' + kind : '') + '">'
+    + '<div class="stat-label">' + esc(label) + '</div>'
+    + '<div class="stat-value">' + esc(value) + '</div>'
+    + '<div class="stat-hint">' + esc(hint) + '</div></div>';
+}
+
+function bookTable(rows) {
+  return [
+    '<div class="table-container"><table class="data-table book-table">',
+    '<thead><tr>',
+    '  <th>과정</th><th>고객사</th>',
+    '  <th>매출의 교재 항목</th><th class="th-r">매출 금액</th>',
+    '  <th class="th-r">실제 교재비</th><th class="th-r">남는 것</th>',
+    '  <th>인쇄업체</th><th>견적서 달</th><th>비고</th><th></th>',
+    '</tr></thead><tbody>',
+    rows.map(bookRow).join(''),
+    '</tbody></table></div>'
+  ].join('');
+}
+
+function bookRow(r) {
+  const p = r.project_id;
+  /*
+   * 매출 항목은 **이름까지** 보여줍니다.
+   * 「교재, 볼펜, 간식, 현수막」 처럼 묶여 적힌 경우가 있어서,
+   * 금액만 보면 교재만의 값인지 알 수 없습니다.
+   */
+  const lines = (r.sales_lines || []).length
+    ? (r.sales_lines || []).map(function (s) {
+        return '<div class="book-line">' + esc(s.name)
+          + ' <b>' + formatNumber(s.amount) + '</b></div>';
+      }).join('')
+    : '<span class="muted">매출에 없습니다</span>';
+
+  const margin = (r.margin === null || r.margin === undefined)
+    ? '<span class="muted">-</span>'
+    : '<span class="' + (r.margin < 0 ? 'neg' : '') + '">' + formatNumber(r.margin) + '</span>';
+
+  return '<tr>'
+    + '<td><a href="#" onclick="navigate(\'project-form\',' + p + ');return false">'
+    +   esc(r.course_name || '(이름 없음)') + '</a>'
+    +   '<div class="sub-text">' + esc(r.schedule || '') + '</div></td>'
+    + '<td>' + esc(r.client_name || '-') + '</td>'
+    + '<td class="book-lines">' + lines + '</td>'
+    + '<td class="ta-r">' + formatNumber(r.sales_total || 0) + '</td>'
+    + '<td class="ta-r"><input type="text" class="form-input ta-r book-amt"'
+    +   ' value="' + (r.amount === null ? '' : formatNumber(r.amount)) + '"'
+    +   ' placeholder="적어주세요"'
+    +   ' onblur="this.value=this.value?formatNumber(parseNumber(this.value)):\'\'"'
+    +   ' onchange="saveBook(' + p + ', this)"></td>'
+    + '<td class="ta-r">' + margin + '</td>'
+    + '<td><input type="text" class="form-input book-vendor" value="' + esc(r.vendor || '') + '"'
+    +   ' placeholder="인쇄업체" onchange="saveBook(' + p + ', this)"></td>'
+    + '<td><input type="text" class="form-input book-month" value="' + esc(r.bill_month || '') + '"'
+    +   ' placeholder="2026-11" maxlength="7" onchange="saveBook(' + p + ', this)"></td>'
+    + '<td><input type="text" class="form-input book-note" value="' + esc(r.note || '') + '"'
+    +   ' placeholder="비고" onchange="saveBook(' + p + ', this)"></td>'
+    + '<td class="ta-c">'
+    +   (r.id ? '<button type="button" class="btn btn-ghost btn-sm" title="적어 둔 교재비 지우기"'
+    +     ' onclick="removeBook(' + p + ')">✖</button>' : '')
+    + '</td>'
+    + '</tr>';
+}
+
+/** 한 줄의 네 칸을 함께 보낸다 — 한 칸만 고쳐도 나머지가 지워지면 안 된다 */
+async function saveBook(projectId, el) {
+  const tr = el.closest('tr');
+  const data = {
+    amount: parseNumber((tr.querySelector('.book-amt') || {}).value || ''),
+    vendor: (tr.querySelector('.book-vendor') || {}).value || '',
+    bill_month: ((tr.querySelector('.book-month') || {}).value || '').trim(),
+    note: (tr.querySelector('.book-note') || {}).value || ''
+  };
+  try {
+    await API.saveBookCost(projectId, data);
+    showToast('교재비를 적었습니다.', 'success');
+    renderBookCosts();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function removeBook(projectId) {
+  if (!confirm('적어 둔 교재비를 지울까요?\n과정과 매출은 그대로 둡니다.')) return;
+  try {
+    await API.deleteBookCost(projectId);
+    showToast('지웠습니다.', 'success');
+    renderBookCosts();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+let bookSearchTimer = null;
+function onBookSearch(v) {
+  BOOK.q = v;
+  clearTimeout(bookSearchTimer);
+  bookSearchTimer = setTimeout(renderBookCosts, 250);
+}
+function setBook(k, v) { BOOK[k] = v; renderBookCosts(); }
+function resetBook() { BOOK.q = ''; BOOK.month = ''; renderBookCosts(); }
+
+/* ───────── 과정 고르기 ───────── */
+
+async function openBookPick(q) {
+  let d;
+  try { d = await API.pickBookProject(q || ''); }
+  catch (e) { showToast(e.message, 'error'); return; }
+
+  let ov = document.querySelector('.modal-overlay[data-role="book-pick"]');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.className = 'modal-overlay';
+    ov.dataset.role = 'book-pick';
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML = [
+    '<div class="modal">',
+    '  <div class="modal-head"><h3>어느 과정의 교재비인가요?</h3>',
+    '    <button type="button" class="modal-x" onclick="closeBookPick()">✕</button></div>',
+    '  <div class="modal-body">',
+    '    <input type="text" id="book-pick-q" class="form-input" placeholder="과정명 · 고객사로 찾기"',
+    '      value="' + esc(q || '') + '" oninput="onBookPickSearch(this.value)">',
+    '    <div class="book-pick-list">',
+    (d.projects || []).length
+      ? (d.projects || []).map(function (p) {
+          const has = (p.sales_lines || []).length
+            ? '매출의 교재 ' + formatNumber(p.sales_total) + '원'
+            : '매출에 교재가 없습니다';
+          return '<div class="book-pick-one" onclick="pickBookProject(' + p.project_id + ')">'
+            + '<div class="main-text">' + esc(p.course_name || '(이름 없음)') + '</div>'
+            + '<div class="sub-text">' + esc(p.client_name || '-')
+            +   ' · ' + esc(p.schedule || '') + ' · ' + esc(has) + '</div>'
+            + '</div>';
+        }).join('')
+      : '<div class="an-empty">찾으시는 과정이 없습니다.</div>',
+    '    </div>',
+    '  </div>',
+    '</div>'
+  ].join('');
+  const box = document.getElementById('book-pick-q');
+  if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+}
+
+let bookPickTimer = null;
+function onBookPickSearch(v) {
+  clearTimeout(bookPickTimer);
+  bookPickTimer = setTimeout(function () { openBookPick(v); }, 250);
+}
+
+function closeBookPick() {
+  const ov = document.querySelector('.modal-overlay[data-role="book-pick"]');
+  if (ov) ov.remove();
+}
+
+/*
+ * 고른 과정을 목록에 올린다.
+ * 금액을 0 으로 한 줄을 만들어 두면, 목록에 나타나 바로 적으실 수 있다.
+ */
+async function pickBookProject(projectId) {
+  try {
+    await API.saveBookCost(projectId, { amount: 0, vendor: '', bill_month: '', note: '' });
+    closeBookPick();
+    BOOK.q = ''; BOOK.month = '';
+    await renderBookCosts();
+    showToast('목록에 올렸습니다. 실제 교재비를 적어주세요.', 'success');
   } catch (e) { showToast(e.message, 'error'); }
 }

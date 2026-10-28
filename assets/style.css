@@ -2798,3 +2798,32 @@ tr.v-done td { background: var(--success-bg); }
   color: var(--text-muted); background: var(--bg-card);
   border: 1px solid var(--border); border-radius: 0.6rem;
 }
+
+/* ── 교재비 ──
+   매출에 적힌 교재비(받는 돈)와 인쇄업체에 드린 돈(주는 돈)을
+   한 줄에 나란히 놓고 봅니다. (대표님 지시 2026-10-28) */
+.book-table td { vertical-align: middle; }
+.book-table .form-input { padding: 0.4rem 0.55rem; font-size: 0.82rem; min-width: 0; }
+.book-table .book-amt { width: 7.5rem; font-weight: 700; }
+.book-table .book-vendor { width: 8rem; }
+.book-table .book-month { width: 5.5rem; }
+.book-table .book-note { width: 9rem; }
+.book-table .ta-r { text-align: right; }
+.book-table .ta-c { text-align: center; }
+.book-table .th-r { text-align: right; }
+/* 매출 항목은 이름까지 보여준다 — 「교재, 볼펜, 간식」 처럼 묶인 것이 있다 */
+.book-lines { max-width: 16rem; }
+.book-line { font-size: 0.78rem; color: var(--text-secondary); line-height: 1.5; }
+.book-line b { color: var(--text-primary); }
+.book-table .muted { color: var(--text-muted); }
+.book-table .neg { color: var(--danger); font-weight: 600; }
+
+/* 과정 고르는 창 */
+.book-pick-list { margin-top: 0.75rem; max-height: 22rem; overflow-y: auto; }
+.book-pick-one {
+  padding: 0.6rem 0.75rem; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); margin-bottom: 0.4rem; cursor: pointer;
+}
+.book-pick-one:hover { background: var(--bg-card-hover); border-color: var(--accent-glow); }
+.book-pick-one .main-text { font-weight: 600; font-size: 0.88rem; }
+.book-pick-one .sub-text { font-size: 0.76rem; color: var(--text-muted); margin-top: 0.15rem; }

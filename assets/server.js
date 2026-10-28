@@ -264,6 +264,33 @@ SCHEMA.invoice_requests = [
 ];
 TAB.invoice_requests = '발행요청';
 
+/*
+ * 교재비 — 인쇄업체에 실제로 드린 돈. (대표님 지시 2026-10-28)
+ *
+ * 왜 따로 두는가
+ *   매출에 적힌 교재비는 고객사에 **받는** 돈이고, 여기 적는 것은
+ *   인쇄업체에 **주는** 돈이다. 둘은 다르고, 보통 맞지도 않는다.
+ *
+ *   게다가 인쇄업체는 월말에 견적서 한 장으로 묶어서 보낸다.
+ *   그 한 장을 과정별로 쪼개 적어 두어야, 달이 끝났을 때
+ *   「이 달 교재비 합계」가 견적서와 맞는지 볼 수 있다.
+ *
+ * bill_month 는 그 견적서의 달(YYYY-MM)이다. 교육한 달과 다를 수 있어
+ * 따로 적는다 — 10월에 한 교육의 교재가 11월 견적서에 실리기도 한다.
+ */
+SCHEMA.book_costs = [
+  { n: 'id', k: 'n' },
+  { n: 'project_id', k: 'n' },
+  { n: 'amount', k: 'n' },        // 인쇄업체에 준 돈
+  { n: 'vendor', k: 't' },        // 인쇄업체
+  { n: 'bill_month', k: 't' },    // 견적서 달 (YYYY-MM)
+  { n: 'note', k: 't' },
+  { n: 'created_by', k: 't' },
+  { n: 'created_at', k: 't' },
+  { n: 'updated_at', k: 't' },
+];
+TAB.book_costs = '교재비';
+
 const TABLES = Object.keys(SCHEMA);
 
 
@@ -449,7 +476,7 @@ function fbSnapLoaded() { return SNAP_AT > 0; }
  * 경고가 그렇다 — Dashboard.gs 가 if (isAdmin(u)) 로 감싸 두었다.
  * 그러니 직원에게는 비어 있어도 아무 일이 없다.
  */
-const ADMIN_ONLY_TABLES = ['alert_checks'];
+const ADMIN_ONLY_TABLES = ['alert_checks', 'book_costs'];
 
 /**
  * 표 전부를 한 번에 읽어 들인다.
@@ -4369,6 +4396,226 @@ function usersUpdate(u, id, b) {
 }
 
 
+/* ═════ BookCosts.gs ═════ */
+/**
+ * 교재비 — 인쇄업체에 실제로 드린 돈을 과정별로 적어 둔다.
+ * ════════════════════════════════════════════════════════════
+ *
+ * 대표님 지시 (2026-10-28)
+ *   "과정명을 선택하면 고객사명도 자동으로 나오고 매출에 있는 교재,
+ *    또는 교재비로 작성된 금액만 가져와서 확인하고 그 옆에 실제
+ *    교재비용을 입력하는 거야"
+ *   "교재인쇄업체에서는 월말에 견적서 1장으로 정리되어서 오기 때문에
+ *    별도 관리가 필요할 것 같아"
+ *
+ * 그래서 두 가지를 한 줄에 나란히 둔다.
+ *   받는 돈 — 그 과정 매출에 적힌 교재 항목 (자동으로 끌어온다)
+ *   주는 돈 — 인쇄업체에 드린 돈 (직접 적으신다)
+ *
+ * 매출 쪽은 **이름까지 함께** 보여준다. 「교재, 볼펜, 간식, 현수막」
+ * 처럼 묶여 적힌 경우가 있어서, 금액만 보면 교재만의 값인지 알 수 없다.
+ *
+ * 관리자만 쓴다.
+ */
+
+/** 매출 항목 이름에 이것이 들어 있으면 교재로 본다 */
+var BOOK_WORD = '교재';
+
+/**
+ * 그 과정 매출에서 교재로 보이는 줄들.
+ * @return {Object} { lines: [{name, amount}], total }
+ */
+function bookSalesOf_(projectId) {
+  var lines = Db.where('project_sales', function (s) {
+    return Number(s.project_id) === Number(projectId)
+      && String(s.name || '').indexOf(BOOK_WORD) >= 0;
+  }).map(function (s) {
+    return { name: String(s.name || ''), amount: saleAmount(s) };
+  });
+  return {
+    lines: lines,
+    total: lines.reduce(function (a, x) { return a + (x.amount || 0); }, 0)
+  };
+}
+
+/** 과정 하나를 교재비 화면이 쓰는 모양으로 */
+function bookRowOf_(p, rec, clientName) {
+  var sales = bookSalesOf_(p.id);
+  var paid = rec ? (rec.amount || 0) : null;
+  return {
+    id: rec ? rec.id : null,
+    project_id: p.id,
+    course_name: p.course_name || '',
+    client_name: p.client_id ? (clientName[p.client_id] || '') : '',
+    schedule: datesToText_(p),
+    /* 받는 돈 — 매출에 적힌 교재 항목 */
+    sales_lines: sales.lines,
+    sales_total: sales.total,
+    /* 주는 돈 — 인쇄업체에 드린 것 */
+    amount: paid,
+    vendor: rec ? (rec.vendor || '') : '',
+    bill_month: rec ? (rec.bill_month || '') : '',
+    note: rec ? (rec.note || '') : '',
+    /* 남는 것. 아직 안 적었으면 셈하지 않는다 (0 으로 보이면 오해한다) */
+    margin: (paid === null) ? null : (sales.total - paid)
+  };
+}
+
+/**
+ * 교재비 목록.
+ *
+ * @param q  { month: 'YYYY-MM' 견적서 달로 거르기, q: 글자 찾기 }
+ */
+function bookCostsList(u, q) {
+  requireAdmin(u);
+  q = q || {};
+
+  var clientName = {};
+  Db.all('clients').forEach(function (c) { clientName[c.id] = c.name; });
+
+  var byProject = {};
+  Db.all('book_costs').forEach(function (r) { byProject[Number(r.project_id)] = r; });
+
+  var month = String(q.month || '').trim();
+  var kw = String(q.q || '').trim().toLowerCase();
+
+  var rows = Db.all('projects').map(function (p) {
+    return bookRowOf_(p, byProject[Number(p.id)] || null, clientName);
+  }).filter(function (r) {
+    /*
+     * 교재와 아무 상관없는 과정까지 다 보여주면 찾기 어렵다.
+     * 매출에 교재가 있거나, 교재비를 적어 둔 과정만 보여준다.
+     */
+    return r.sales_total > 0 || r.amount !== null;
+  });
+
+  if (month) rows = rows.filter(function (r) { return r.bill_month === month; });
+  if (kw) {
+    rows = rows.filter(function (r) {
+      return String(r.course_name).toLowerCase().indexOf(kw) >= 0
+        || String(r.client_name).toLowerCase().indexOf(kw) >= 0;
+    });
+  }
+
+  /* 최근 교육부터 — 과정 목록과 같은 차례 */
+  rows.sort(function (a, b) {
+    var pa = Db.get('projects', a.project_id) || {};
+    var pb = Db.get('projects', b.project_id) || {};
+    var sa = firstStart_(pa) || '', sb = firstStart_(pb) || '';
+    if (sa !== sb) { if (!sa) return 1; if (!sb) return -1; return sa < sb ? 1 : -1; }
+    return b.project_id - a.project_id;
+  });
+
+  /* 견적서 달 고르는 칸에 쓸 목록 */
+  var months = {};
+  Db.all('book_costs').forEach(function (r) {
+    if (r.bill_month) months[r.bill_month] = true;
+  });
+
+  var totals = rows.reduce(function (a, r) {
+    a.sales += r.sales_total || 0;
+    a.paid += r.amount || 0;
+    if (r.amount !== null) a.filled++;
+    return a;
+  }, { sales: 0, paid: 0, filled: 0 });
+  totals.count = rows.length;
+  totals.margin = totals.sales - totals.paid;
+
+  return {
+    rows: rows,
+    totals: totals,
+    months: Object.keys(months).sort().reverse()
+  };
+}
+
+/** 적어 넣은 값을 다듬는다 */
+function cleanBook_(b) {
+  var m = String((b && b.bill_month) || '').trim();
+  if (m && !/^\d{4}-\d{2}$/.test(m)) {
+    throw new Error('견적서 달은 2026-11 처럼 적어주세요.');
+  }
+  return {
+    amount: parseInt(b && b.amount, 10) || 0,
+    vendor: trim_(b && b.vendor),
+    bill_month: m,
+    note: trim_(b && b.note)
+  };
+}
+
+/**
+ * 과정 하나의 교재비를 적는다 (있으면 고친다).
+ * 과정 하나에 한 줄만 둔다 — 인쇄업체 견적서를 과정별로 쪼개 적는 것이므로.
+ */
+function bookCostsSave(u, projectId, b) {
+  requireAdmin(u);
+  var pid = Number(projectId);
+  var p = Db.get('projects', pid);
+  if (!p) throw new Error('없는 과정입니다.');
+
+  var d = cleanBook_(b);
+  var had = Db.first('book_costs', function (r) { return Number(r.project_id) === pid; });
+
+  if (had) {
+    Db.update('book_costs', had.id, d);
+  } else {
+    d.project_id = pid;
+    d.created_by = u.id;
+    Db.insert('book_costs', d);
+  }
+
+  var clientName = {};
+  Db.all('clients').forEach(function (c) { clientName[c.id] = c.name; });
+  var rec = Db.first('book_costs', function (r) { return Number(r.project_id) === pid; });
+  return { message: '교재비를 적었습니다.', row: bookRowOf_(p, rec, clientName) };
+}
+
+/** 적어 둔 교재비를 지운다 (과정은 그대로 둔다) */
+function bookCostsDelete(u, projectId) {
+  requireAdmin(u);
+  var pid = Number(projectId);
+  var n = Db.removeWhere('book_costs', function (r) { return Number(r.project_id) === pid; });
+  return { message: n ? '지웠습니다.' : '적어 둔 것이 없습니다.', removed: n };
+}
+
+/**
+ * 아직 교재비를 안 적은 과정을 찾는다 (＋ 추가할 때 고르는 목록).
+ * 매출에 교재가 없는 과정도 고를 수 있어야 한다 —
+ * 「매출에 없으면 없는대로」 적으실 수 있어야 하기 때문이다.
+ */
+function bookCostsPick(u, q) {
+  requireAdmin(u);
+  var kw = String((q && q.q) || '').trim().toLowerCase();
+
+  var clientName = {};
+  Db.all('clients').forEach(function (c) { clientName[c.id] = c.name; });
+  var has = {};
+  Db.all('book_costs').forEach(function (r) { has[Number(r.project_id)] = true; });
+
+  var rows = Db.all('projects').filter(function (p) {
+    if (has[Number(p.id)]) return false;                  // 이미 적은 과정은 빼고
+    if (!kw) return true;
+    return String(p.course_name || '').toLowerCase().indexOf(kw) >= 0
+      || String(clientName[p.client_id] || '').toLowerCase().indexOf(kw) >= 0;
+  }).sort(function (a, b) {
+    var sa = firstStart_(a) || '', sb = firstStart_(b) || '';
+    if (sa !== sb) { if (!sa) return 1; if (!sb) return -1; return sa < sb ? 1 : -1; }
+    return b.id - a.id;
+  }).slice(0, 30).map(function (p) {
+    var sales = bookSalesOf_(p.id);
+    return {
+      project_id: p.id,
+      course_name: p.course_name || '',
+      client_name: p.client_id ? (clientName[p.client_id] || '') : '',
+      schedule: datesToText_(p),
+      sales_total: sales.total,
+      sales_lines: sales.lines
+    };
+  });
+
+  return { projects: rows };
+}
+
+
 /* ═════ BulkGroup.gs ═════ */
 /**
  * 「과정」 시트 — 과정 하나와 그에 딸린 매출·매입·계산서를 한 자리에 모은다.
@@ -6570,6 +6817,14 @@ function route_(u, method, path, b, q) {
   }
 
   /* ───── 엑셀로 한꺼번에 고치기 ───── */
+  /* ───── 교재비 (관리자만) ───── */
+  if (head === 'book-costs') {
+    if (GET && a === 'pick') return bookCostsPick(u, q);
+    if (GET && !a) return bookCostsList(u, q);
+    if (PUT && a) return bookCostsSave(u, a, b);
+    if (DEL && a) return bookCostsDelete(u, a);
+  }
+
   /* ───── 통째로 내보내기 (파이어베이스 이전용) ───── */
   if (head === 'export' && GET && a === 'all') return exportAll(u);
 
