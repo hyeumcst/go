@@ -98,6 +98,12 @@ const SCHEMA = {
     { n: 'note', k: 't' },
     { n: 'created_at', k: 't' },
     { n: 'card_last4', k: 't' },
+    /*
+     * 운영비 관리에서 적은 줄 — 어느 탭인지(book·supply·etc)와 견적서 월.
+     * 비어 있으면 과정등록에서 바로 적은 보통 매입 줄이다.
+     */
+    { n: 'op_kind', k: 't' },
+    { n: 'bill_month', k: 't' },
   ],
   project_invoices: [
     { n: 'id', k: 'n' },
@@ -2288,7 +2294,14 @@ function writeExpenses(projectId, expenses) {
       tax_amount: parseInt(e.tax_amount, 10) || 0,
       payment_amount: parseInt(e.payment_amount, 10) || 0,
       payment_date: e.payment_date || null, note: e.note || '',
-      card_last4: cardLast4(e)
+      card_last4: cardLast4(e),
+      /*
+       * 운영비 관리에서 적은 줄이라는 표시는 그대로 들고 간다.
+       * 여기서 떨어뜨리면 과정등록에서 한 번 저장하는 순간 그 줄이
+       * 운영비 관리 화면에서 사라져 버린다.
+       */
+      op_kind: e.op_kind || '',
+      bill_month: e.bill_month || ''
     });
     totalExp += amt;
   });
@@ -4396,261 +4409,445 @@ function usersUpdate(u, id, b) {
 }
 
 
-/* ═════ BookCosts.gs ═════ */
+/* ═════ OpCosts.gs ═════ */
 /**
- * 교재비 — 인쇄업체에 실제로 드린 돈을 과정별로 적어 둔다.
+ * 운영비 관리 — 교재비 · 문구류/간식비 · 기타를 과정별로 적는다.
  * ════════════════════════════════════════════════════════════
  *
  * 대표님 지시 (2026-10-28)
- *   "과정명을 선택하면 고객사명도 자동으로 나오고 매출에 있는 교재,
- *    또는 교재비로 작성된 금액만 가져와서 확인하고 그 옆에 실제
- *    교재비용을 입력하는 거야"
- *   "교재인쇄업체에서는 월말에 견적서 1장으로 정리되어서 오기 때문에
- *    별도 관리가 필요할 것 같아"
+ *   "교재비를 운영비 관리로 해주고, 클릭하면 교재비 탭이 있고,
+ *    문구류 및 간식비 탭이 있고 기타 탭이 있어"
+ *   "조건값에서 10월을 선택하면 10월에 진행한 과정(교육)들이 나열이 되고
+ *    그 과정을 선택하면 바로 아래에 탭이 나오는 형태로 해줘"
+ *   "탭별로 항목은 계속 추가할 수 있도록"
+ *   "몇월인지를 선택하는 기준은 교육일정 기준으로"
+ *   "여기에 작성한 정보가 과정등록의 매입에 연동이 되어 내용이 들어갈 수 있도록"
  *
- * 그래서 두 가지를 한 줄에 나란히 둔다.
- *   받는 돈 — 그 과정 매출에 적힌 교재 항목 (자동으로 끌어온다)
- *   주는 돈 — 인쇄업체에 드린 돈 (직접 적으신다)
+ *   "교재비는 100% 세금계산서 / 문구류와 간식비는 세금계산서 또는 카드 구입 /
+ *    기타도 세금계산서 또는 카드구입"
+ *   "매입에 연동될 때에는 교재비 / 문구류, 간식비 / 버스비 등이 들어가고
+ *    나머지는 기타로 해줘. 그리고 항목에 문구류, 간식비 등을 작성해주고"
  *
- * 매출 쪽은 **이름까지 함께** 보여준다. 「교재, 볼펜, 간식, 현수막」
- * 처럼 묶여 적힌 경우가 있어서, 금액만 보면 교재만의 값인지 알 수 없다.
+ * ── 자료를 두 벌 두지 않는다 ──
+ *
+ * 여기서 적는 한 줄이 **그 과정의 매입 줄 그 자체**다. 따로 적어 두었다가
+ * 매입으로 옮기는 것이 아니라, 같은 한 줄을 창구 두 곳에서 보는 것이다.
+ * 두 벌이면 한쪽만 고쳐져 금액이 조용히 어긋난다.
+ *
+ * 매입 줄에 두 칸을 더했다.
+ *   op_kind     어느 탭에서 적은 것인지 (book · supply · etc)
+ *   bill_month  견적서 월 — 업체가 월말에 한 장으로 보내므로 맞춰 볼 수 있어야 한다
  *
  * 관리자만 쓴다.
  */
 
-/** 매출 항목 이름에 이것이 들어 있으면 교재로 본다 */
-var BOOK_WORD = '교재';
+/**
+ * 탭 — 이 정의 하나만 고치면 화면·서버가 함께 따라온다.
+ *
+ *   names     항목명 칸에 미리 넣어 드리는 보기 (직접 적으셔도 된다)
+ *   taxes     고를 수 있는 세율. 교재비는 카드가 없다 — 100% 세금계산서라고 하셨다
+ *   word      업체 목록을 추릴 낱말 (교재비만 쓴다)
+ */
+var OP_TABS = [
+  {
+    key: 'book', label: '교재비',
+    names: ['교재비', '워크북', '부교재', '인쇄비'],
+    taxes: ['세금계산서(과세)', '세금계산서(면세)'],
+    word: '교재',
+    hint: '인쇄업체 견적서가 월말에 한 장으로 오므로, 견적서 월을 적어 두면 달마다 맞춰 볼 수 있습니다.'
+  },
+  {
+    key: 'supply', label: '문구류 및 간식비',
+    names: ['문구류', '간식비', '음료', '다과'],
+    taxes: ['세금계산서(과세)', '세금계산서(면세)', '카드(과세)'],
+    word: null,
+    hint: '세금계산서로 받으신 것과 카드로 사신 것을 한 줄씩 적으세요.'
+  },
+  {
+    key: 'etc', label: '기타',
+    names: ['버스비', '현수막', '주차비', '식대', '기타'],
+    taxes: ['세금계산서(과세)', '세금계산서(면세)', '카드(과세)'],
+    word: null,
+    hint: '버스비·현수막 등 위 두 가지가 아닌 운영비를 적으세요. 마땅한 이름이 없으면 기타로 두시면 됩니다.'
+  }
+];
+
+function opTab_(key) {
+  for (var i = 0; i < OP_TABS.length; i++) if (OP_TABS[i].key === key) return OP_TABS[i];
+  return null;
+}
 
 /**
- * 그 과정 매출에서 교재로 보이는 줄들.
- * @return {Object} { lines: [{name, amount}], total }
+ * 매입 분류는 「어떻게 사셨는가」로 정해진다.
+ *   카드로 샀으면        법인카드(교육운영)
+ *   계산서를 받았으면     협력사(운영비)
+ *
+ * 분류를 따로 고르시게 하면 틀리기 쉽고, 세율과 어긋나면 분석 화면의
+ * 숫자가 맞지 않는다. 세율 하나만 고르시면 분류는 여기서 맞춘다.
  */
-function bookSalesOf_(projectId) {
+function opCategoryOf_(taxType) {
+  return String(taxType || '').indexOf('카드') === 0 ? '법인카드(교육운영)' : '협력사(운영비)';
+}
+
+/**
+ * 세금·실지급액 — 화면(app.js 의 calcTax)과 **같은 셈이어야 한다.**
+ * 둘이 어긋나면 화면에 보이는 값과 저장되는 값이 달라진다.
+ */
+function opTax_(total, taxType) {
+  var t = parseInt(total, 10) || 0;
+  if (taxType === '세금계산서(과세)') {
+    var add = Math.round(t * 0.1);
+    return { tax: add, payment: t + add };
+  }
+  if (taxType === '카드(과세)') {
+    /* 카드 결제액에는 부가세가 이미 들어 있다 — 총액은 그대로, 부가세만 갈라 본다 */
+    return { tax: Math.round(t / 11), payment: t };
+  }
+  /* 세금계산서(면세) 등 */
+  return { tax: 0, payment: t };
+}
+
+/* ───────── 교육일정으로 달을 가른다 ───────── */
+
+/**
+ * 그 과정이 이 달에 교육을 했는가.
+ * 「등록일」이 아니라 **교육일정**이 기준이다 (대표님 지시).
+ */
+function opInMonth_(p, month) {
+  if (!month) return true;
+  return overlapsPeriod(p, month + '-01', month + '-31');
+}
+
+/**
+ * 고를 수 있는 달 — 교육일정이 있는 달만.
+ *
+ * 10월 30일에 시작해 11월 2일에 끝나는 교육은 **두 달 모두**에 나와야 한다.
+ * (monthsOf 는 시작하는 달만 주므로 여기서 끝나는 달까지 훑는다)
+ */
+function opMonths_() {
+  var seen = {};
+  Db.all('projects').forEach(function (p) {
+    schedOf(p).forEach(function (r) {
+      var s = String((r && r.s) || ''), e = String((r && r.e) || r && r.s || '');
+      if (!/^\d{4}-\d{2}/.test(s)) return;
+      var cur = s.slice(0, 7);
+      var end = /^\d{4}-\d{2}/.test(e) ? e.slice(0, 7) : cur;
+      /* 한 해를 넘겨 길게 끌리는 일은 없지만, 돌다 멈추지 않도록 24달로 막아 둔다 */
+      for (var n = 0; n < 24; n++) {
+        seen[cur] = true;
+        if (cur >= end) break;
+        var y = Number(cur.slice(0, 4)), m = Number(cur.slice(5, 7)) + 1;
+        if (m > 12) { y++; m = 1; }
+        cur = y + '-' + (m < 10 ? '0' + m : String(m));
+      }
+    });
+  });
+  return Object.keys(seen).sort().reverse();
+}
+
+/* ───────── 매입 줄을 읽고 쓴다 ───────── */
+
+/** 그 과정의 운영비 줄들 (운영비 관리에서 적은 것만) */
+function opRowsOf_(projectId) {
+  return Db.where('project_expenses', function (r) {
+    return Number(r.project_id) === Number(projectId) && !!r.op_kind;
+  });
+}
+
+/** 한 줄을 화면이 쓰는 모양으로 */
+function opItemOf_(r) {
+  return {
+    id: r.id,
+    kind: r.op_kind,
+    name: r.name || '',
+    vendor: r.affiliation || '',
+    amount: r.total_amount || 0,
+    tax_type: r.tax_type || '세금계산서(과세)',
+    tax_amount: r.tax_amount || 0,
+    payment_amount: r.payment_amount || 0,
+    bill_month: r.bill_month || '',
+    card_last4: r.card_last4 || '',
+    note: r.note || ''
+  };
+}
+
+/** 탭별 합계 */
+function opSumsOf_(rows) {
+  var out = { book: 0, supply: 0, etc: 0, total: 0 };
+  rows.forEach(function (r) {
+    var amt = r.total_amount || 0;
+    if (out[r.op_kind] === undefined) return;
+    out[r.op_kind] += amt;
+    out.total += amt;
+  });
+  return out;
+}
+
+/**
+ * 과정의 매입합계를 다시 셈한다.
+ *
+ * 과정등록 화면은 매입을 통째로 다시 쓰지만(writeExpenses), 여기서는
+ * 한 줄만 건드리므로 합계를 따로 맞춰 주어야 한다. 안 맞으면 과정
+ * 목록과 분석 화면의 매입이 틀어진다.
+ */
+function opRetotal_(projectId) {
+  var t = 0;
+  Db.where('project_expenses', function (r) {
+    return Number(r.project_id) === Number(projectId);
+  }).forEach(function (r) { t += r.total_amount || 0; });
+  Db.update('projects', Number(projectId), { total_expenses: t });
+  return t;
+}
+
+/** 매출에 적힌 운영비 — 받는 돈 (여기 적는 것은 주는 돈) */
+function opSalesOf_(projectId) {
   var lines = Db.where('project_sales', function (s) {
-    return Number(s.project_id) === Number(projectId)
-      && String(s.name || '').indexOf(BOOK_WORD) >= 0;
+    return Number(s.project_id) === Number(projectId) && s.category === '운영비';
   }).map(function (s) {
     return { name: String(s.name || ''), amount: saleAmount(s) };
   });
+  var book = lines.filter(function (x) { return x.name.indexOf('교재') >= 0; });
   return {
     lines: lines,
-    total: lines.reduce(function (a, x) { return a + (x.amount || 0); }, 0)
+    total: lines.reduce(function (a, x) { return a + (x.amount || 0); }, 0),
+    book: book.reduce(function (a, x) { return a + (x.amount || 0); }, 0)
   };
 }
 
-/** 과정 하나를 교재비 화면이 쓰는 모양으로 */
-function bookRowOf_(p, rec, clientName) {
-  var sales = bookSalesOf_(p.id);
-  var paid = rec ? (rec.amount || 0) : null;
-  return {
-    id: rec ? rec.id : null,
-    project_id: p.id,
-    course_name: p.course_name || '',
-    client_name: p.client_id ? (clientName[p.client_id] || '') : '',
-    schedule: datesToText_(p),
-    /* 받는 돈 — 매출에 적힌 교재 항목 */
-    sales_lines: sales.lines,
-    sales_total: sales.total,
-    /* 주는 돈 — 인쇄업체에 드린 것 */
-    amount: paid,
-    vendor: rec ? (rec.vendor || '') : '',
-    bill_month: rec ? (rec.bill_month || '') : '',
-    note: rec ? (rec.note || '') : '',
-    /* 이익 = 받는 돈 − 주는 돈. 아직 안 적었으면 셈하지 않는다 (0 으로 보이면 오해한다) */
-    margin: (paid === null) ? null : (sales.total - paid)
-  };
-}
+/* ═══════════════════════ 엔드포인트 ═══════════════════════ */
 
 /**
- * 교재비 목록.
+ * 과정 목록 — 고르신 달에 **교육을 한** 과정들.
  *
- * @param q  { month: 'YYYY-MM' 견적서 월로 거르기, q: 글자 찾기 }
+ * @param q { month: 'YYYY-MM', q: 글자 찾기 }
  */
-function bookCostsList(u, q) {
+function opCostsList(u, q) {
   requireAdmin(u);
   q = q || {};
-
-  var clientName = {};
-  Db.all('clients').forEach(function (c) { clientName[c.id] = c.name; });
-
-  var byProject = {};
-  Db.all('book_costs').forEach(function (r) { byProject[Number(r.project_id)] = r; });
+  migrateBookCosts_();
 
   var month = String(q.month || '').trim();
+  if (month && !/^\d{4}-\d{2}$/.test(month)) throw new Error('달은 2026-10 처럼 적어주세요.');
   var kw = String(q.q || '').trim().toLowerCase();
 
-  var rows = Db.all('projects').map(function (p) {
-    return bookRowOf_(p, byProject[Number(p.id)] || null, clientName);
-  }).filter(function (r) {
-    /*
-     * 교재와 아무 상관없는 과정까지 다 보여주면 찾기 어렵다.
-     * 매출에 교재가 있거나, 교재비를 적어 둔 과정만 보여준다.
-     */
-    return r.sales_total > 0 || r.amount !== null;
-  });
-
-  if (month) rows = rows.filter(function (r) { return r.bill_month === month; });
-  if (kw) {
-    rows = rows.filter(function (r) {
-      return String(r.course_name).toLowerCase().indexOf(kw) >= 0
-        || String(r.client_name).toLowerCase().indexOf(kw) >= 0;
-    });
-  }
-
-  /* 최근 교육부터 — 과정 목록과 같은 차례 */
-  rows.sort(function (a, b) {
-    var pa = Db.get('projects', a.project_id) || {};
-    var pb = Db.get('projects', b.project_id) || {};
-    var sa = firstStart_(pa) || '', sb = firstStart_(pb) || '';
-    if (sa !== sb) { if (!sa) return 1; if (!sb) return -1; return sa < sb ? 1 : -1; }
-    return b.project_id - a.project_id;
-  });
-
-  /* 견적서 월 고르는 칸에 쓸 목록 */
-  var months = {};
-  Db.all('book_costs').forEach(function (r) {
-    if (r.bill_month) months[r.bill_month] = true;
-  });
-
-  var totals = rows.reduce(function (a, r) {
-    a.sales += r.sales_total || 0;
-    a.paid += r.amount || 0;
-    if (r.amount !== null) a.filled++;
-    return a;
-  }, { sales: 0, paid: 0, filled: 0 });
-  totals.count = rows.length;
-  totals.margin = totals.sales - totals.paid;
-
-  return {
-    rows: rows,
-    totals: totals,
-    months: Object.keys(months).sort().reverse()
-  };
-}
-
-/** 적어 넣은 값을 다듬는다 */
-function cleanBook_(b) {
-  var m = String((b && b.bill_month) || '').trim();
-  if (m && !/^\d{4}-\d{2}$/.test(m)) {
-    throw new Error('견적서 월은 2026-11 처럼 적어주세요.');
-  }
-  return {
-    amount: parseInt(b && b.amount, 10) || 0,
-    vendor: trim_(b && b.vendor),
-    bill_month: m,
-    note: trim_(b && b.note)
-  };
-}
-
-/**
- * 과정 하나의 교재비를 적는다 (있으면 고친다).
- * 과정 하나에 한 줄만 둔다 — 인쇄업체 견적서를 과정별로 쪼개 적는 것이므로.
- */
-function bookCostsSave(u, projectId, b) {
-  requireAdmin(u);
-  var pid = Number(projectId);
-  var p = Db.get('projects', pid);
-  if (!p) throw new Error('없는 과정입니다.');
-
-  var d = cleanBook_(b);
-  var had = Db.first('book_costs', function (r) { return Number(r.project_id) === pid; });
-
-  if (had) {
-    Db.update('book_costs', had.id, d);
-  } else {
-    d.project_id = pid;
-    d.created_by = u.id;
-    Db.insert('book_costs', d);
-  }
-
   var clientName = {};
   Db.all('clients').forEach(function (c) { clientName[c.id] = c.name; });
-  var rec = Db.first('book_costs', function (r) { return Number(r.project_id) === pid; });
-  return { message: '교재비를 적었습니다.', row: bookRowOf_(p, rec, clientName) };
-}
 
-/** 적어 둔 교재비를 지운다 (과정은 그대로 둔다) */
-function bookCostsDelete(u, projectId) {
-  requireAdmin(u);
-  var pid = Number(projectId);
-  var n = Db.removeWhere('book_costs', function (r) { return Number(r.project_id) === pid; });
-  return { message: n ? '지웠습니다.' : '적어 둔 것이 없습니다.', removed: n };
-}
-
-/**
- * 아직 교재비를 안 적은 과정을 찾는다 (＋ 추가할 때 고르는 목록).
- * 매출에 교재가 없는 과정도 고를 수 있어야 한다 —
- * 「매출에 없으면 없는대로」 적으실 수 있어야 하기 때문이다.
- */
-function bookCostsPick(u, q) {
-  requireAdmin(u);
-  var kw = String((q && q.q) || '').trim().toLowerCase();
-
-  var clientName = {};
-  Db.all('clients').forEach(function (c) { clientName[c.id] = c.name; });
-  var has = {};
-  Db.all('book_costs').forEach(function (r) { has[Number(r.project_id)] = true; });
+  /* 운영비 줄을 과정별로 모아 둔다 — 과정마다 표를 훑지 않기 위해서다 */
+  var byProject = {};
+  Db.where('project_expenses', function (r) { return !!r.op_kind; })
+    .forEach(function (r) { (byProject[Number(r.project_id)] = byProject[Number(r.project_id)] || []).push(r); });
 
   var rows = Db.all('projects').filter(function (p) {
-    if (has[Number(p.id)]) return false;                  // 이미 적은 과정은 빼고
+    if (!opInMonth_(p, month)) return false;
     if (!kw) return true;
     return String(p.course_name || '').toLowerCase().indexOf(kw) >= 0
       || String(clientName[p.client_id] || '').toLowerCase().indexOf(kw) >= 0;
-  }).sort(function (a, b) {
-    var sa = firstStart_(a) || '', sb = firstStart_(b) || '';
-    if (sa !== sb) { if (!sa) return 1; if (!sb) return -1; return sa < sb ? 1 : -1; }
-    return b.id - a.id;
-  }).slice(0, 30).map(function (p) {
-    var sales = bookSalesOf_(p.id);
+  }).map(function (p) {
+    var mine = byProject[Number(p.id)] || [];
+    var sales = opSalesOf_(p.id);
     return {
       project_id: p.id,
       course_name: p.course_name || '',
       client_name: p.client_id ? (clientName[p.client_id] || '') : '',
       schedule: datesToText_(p),
-      sales_total: sales.total,
-      sales_lines: sales.lines
+      start: firstStart_(p) || '',
+      sums: opSumsOf_(mine),
+      count: mine.length,
+      sale_operation: sales.total,
+      sale_book: sales.book
     };
   });
 
-  return { projects: rows };
-}
-
-/*
- * 인쇄업체 목록 — 교재를 찍는 협력사만 추려 준다.
- *
- * 대표님 지시 (2026-10-28)
- *   "인쇄업체는 협력사중에서 열린길과 태진미디어라고 있을 거야.
- *    나중에 협력사 등록 시 교재라는 단어가 있으면 자동으로 추가시켜줘"
- *
- * 이름을 코드에 박아 두면 새 업체가 생길 때마다 고쳐야 한다.
- * 그래서 「교재」 라는 낱말로 고른다 — 협력사명 · 분류 · 비고 어디든.
- *
- * 지금 자료로 보면 이렇게 걸린다
- *   열린길_교재,디자인   이름에 「교재」
- *   태진애드컴          비고에 「교재업체」
- * 둘 다 들어오고, 앞으로 교재라고 적어 등록하시면 저절로 따라온다.
- */
-function bookVendors(u) {
-  requireAdmin(u);
-  var hit = function (p) {
-    return [p.name, p.category, p.note].some(function (v) {
-      return String(v || '').indexOf(BOOK_WORD) >= 0;
-    });
-  };
-  var names = Db.where('partners', function (p) { return p.is_active && hit(p); })
-    .sort(byName_)
-    .map(function (p) { return p.name; });
-
-  /*
-   * 이미 적어 두신 업체는 목록에 없더라도 넣어 준다.
-   * 안 그러면 협력사에서 「교재」를 지우는 순간 적어 둔 값이 사라져 보인다.
-   */
-  Db.all('book_costs').forEach(function (r) {
-    var v = String(r.vendor || '').trim();
-    if (v && names.indexOf(v) < 0) names.push(v);
+  /* 최근 교육부터 — 과정 목록과 같은 차례 */
+  rows.sort(function (a, b) {
+    if (a.start !== b.start) { if (!a.start) return 1; if (!b.start) return -1; return a.start < b.start ? 1 : -1; }
+    return b.project_id - a.project_id;
   });
 
-  return { vendors: names };
+  var totals = rows.reduce(function (acc, r) {
+    acc.book += r.sums.book; acc.supply += r.sums.supply; acc.etc += r.sums.etc;
+    acc.total += r.sums.total; acc.sale_operation += r.sale_operation;
+    if (r.count) acc.filled++;
+    return acc;
+  }, { book: 0, supply: 0, etc: 0, total: 0, sale_operation: 0, filled: 0 });
+  totals.count = rows.length;
+  totals.margin = totals.sale_operation - totals.total;
+
+  return { rows: rows, totals: totals, months: opMonths_(), tabs: OP_TABS, month: month };
+}
+
+/** 과정 하나의 운영비 줄들 — 과정을 누르면 펼쳐지는 내용 */
+function opCostsItems(u, projectId) {
+  requireAdmin(u);
+  var p = Db.get('projects', Number(projectId));
+  if (!p) throw new Error('없는 과정입니다.');
+
+  var items = { book: [], supply: [], etc: [] };
+  opRowsOf_(p.id).forEach(function (r) {
+    if (items[r.op_kind]) items[r.op_kind].push(opItemOf_(r));
+  });
+  /* 적은 차례대로 — 번호가 작은 것이 먼저 적은 것이다 */
+  Object.keys(items).forEach(function (k) {
+    items[k].sort(function (a, b) { return a.id - b.id; });
+  });
+
+  var sales = opSalesOf_(p.id);
+  return {
+    project_id: p.id,
+    items: items,
+    sums: opSumsOf_(opRowsOf_(p.id)),
+    sale_lines: sales.lines,
+    sale_operation: sales.total,
+    sale_book: sales.book
+  };
+}
+
+/** 적어 넣은 한 줄을 다듬는다 */
+function opClean_(item) {
+  var tab = opTab_(String((item && item.kind) || ''));
+  if (!tab) throw new Error('없는 탭입니다.');
+
+  var tax = String((item && item.tax_type) || '').trim() || tab.taxes[0];
+  if (tab.taxes.indexOf(tax) < 0) {
+    throw new Error(tab.label + ' 에서는 ' + tab.taxes.join(' · ') + ' 중에서 고르셔야 합니다.');
+  }
+
+  var month = String((item && item.bill_month) || '').trim();
+  if (month && !/^\d{4}-\d{2}$/.test(month)) {
+    throw new Error('견적서 월은 2026-10 처럼 적어주세요.');
+  }
+
+  var amount = parseInt(item && item.amount, 10) || 0;
+  if (amount < 0) throw new Error('금액은 0 보다 작을 수 없습니다.');
+  var t = opTax_(amount, tax);
+
+  var last4 = String((item && item.card_last4) || '').replace(/[^0-9]/g, '').slice(0, 4);
+  /* 카드가 아니면 카드번호를 들고 있을 까닭이 없다 */
+  if (tax.indexOf('카드') !== 0) last4 = '';
+
+  return {
+    op_kind: tab.key,
+    category: opCategoryOf_(tax),
+    name: trim_(item && item.name) || tab.names[0],
+    affiliation: trim_(item && item.vendor),
+    total_amount: amount,
+    tax_type: tax,
+    tax_amount: t.tax,
+    payment_amount: t.payment,
+    bill_month: month,
+    card_last4: last4,
+    note: trim_(item && item.note),
+    /* 금액을 직접 적으시므로 수기작성이다 — 단가×수량으로 다시 셈하면 0 이 된다 */
+    is_manual: 1,
+    quantity: 0, hours: 0, sessions: 1, unit: '', unit_price: 0,
+    instructor_id: null
+  };
+}
+
+/** 한 줄을 넣거나 고친다 */
+function opCostsSave(u, projectId, item) {
+  requireAdmin(u);
+  var pid = Number(projectId);
+  var p = Db.get('projects', pid);
+  if (!p) throw new Error('없는 과정입니다.');
+
+  var d = opClean_(item);
+  var id = parseInt(item && item.id, 10) || 0;
+
+  if (id) {
+    var had = Db.get('project_expenses', id);
+    if (!had) throw new Error('없는 줄입니다.');
+    if (Number(had.project_id) !== pid) throw new Error('다른 과정의 줄입니다.');
+    /*
+     * 운영비 관리에서 만들지 않은 매입 줄(강사료 등)은 여기서 못 고친다.
+     * 잘못 눌러 강사료가 교재비로 바뀌는 일을 막는다.
+     */
+    if (!had.op_kind) throw new Error('과정등록에서 적은 매입 줄은 여기서 고칠 수 없습니다.');
+    Db.update('project_expenses', id, d);
+  } else {
+    d.project_id = pid;
+    Db.insert('project_expenses', d);
+  }
+
+  opRetotal_(pid);
+  return { message: '저장했습니다.', detail: opCostsItems(u, pid) };
+}
+
+/** 한 줄을 지운다 — 매입에서도 함께 사라진다 */
+function opCostsDelete(u, expenseId) {
+  requireAdmin(u);
+  var id = Number(expenseId);
+  var row = Db.get('project_expenses', id);
+  if (!row) throw new Error('없는 줄입니다.');
+  if (!row.op_kind) throw new Error('과정등록에서 적은 매입 줄은 여기서 지울 수 없습니다.');
+
+  var pid = Number(row.project_id);
+  Db.remove('project_expenses', id);
+  opRetotal_(pid);
+  return { message: '지웠습니다.', detail: opCostsItems(u, pid) };
+}
+
+/**
+ * 업체 목록.
+ *
+ * 교재비는 협력사 가운데 「교재」 가 붙은 곳만 추려 드린다 — 인쇄업체가
+ * 몇 곳뿐이라 그 편이 빠르다. 나머지 탭은 협력사 전부를 드린다.
+ * 어느 쪽이든 이미 적어 두신 업체는 목록에서 빠져도 남긴다.
+ */
+function opVendors(u, kind) {
+  requireAdmin(u);
+  var tab = opTab_(String(kind || '')) || OP_TABS[0];
+
+  var names = Db.where('partners', function (p) {
+    if (!p.is_active) return false;
+    if (!tab.word) return true;
+    return [p.name, p.category, p.note].some(function (v) {
+      return String(v || '').indexOf(tab.word) >= 0;
+    });
+  }).sort(byName_).map(function (p) { return p.name; });
+
+  Db.where('project_expenses', function (r) { return r.op_kind === tab.key; })
+    .forEach(function (r) {
+      var v = String(r.affiliation || '').trim();
+      if (v && names.indexOf(v) < 0) names.push(v);
+    });
+
+  return { vendors: names, kind: tab.key };
+}
+
+/* ───────── 옛 교재비 자료 옮기기 ───────── */
+
+/**
+ * 「교재비」 화면에서 적어 두셨던 것을 매입 줄로 옮긴다.
+ *
+ * 옛 화면은 자료를 book_costs 라는 따로 둔 표에 쌓았다. 이제는 매입 줄
+ * 하나가 곧 운영비 항목이므로, 남아 있는 것을 한 번 옮기고 비운다.
+ * 옮긴 줄은 book_costs 에서 지우므로 두 번 들어가지 않는다.
+ */
+function migrateBookCosts_() {
+  var old = [];
+  try { old = Db.all('book_costs'); } catch (e) { return 0; }
+  if (!old || !old.length) return 0;
+
+  var moved = 0;
+  old.forEach(function (r) {
+    var pid = Number(r.project_id);
+    var amount = parseInt(r.amount, 10) || 0;
+    if (Db.get('projects', pid) && amount > 0) {
+      var d = opClean_({
+        kind: 'book', name: '교재비', vendor: r.vendor,
+        amount: amount, tax_type: '세금계산서(과세)',
+        bill_month: r.bill_month, note: r.note
+      });
+      d.project_id = pid;
+      Db.insert('project_expenses', d);
+      opRetotal_(pid);
+      moved++;
+    }
+    Db.remove('book_costs', r.id);
+  });
+  return moved;
 }
 
 
@@ -6855,13 +7052,13 @@ function route_(u, method, path, b, q) {
   }
 
   /* ───── 엑셀로 한꺼번에 고치기 ───── */
-  /* ───── 교재비 (관리자만) ───── */
-  if (head === 'book-costs') {
-    if (GET && a === 'pick') return bookCostsPick(u, q);
-    if (GET && a === 'vendors') return bookVendors(u);
-    if (GET && !a) return bookCostsList(u, q);
-    if (PUT && a) return bookCostsSave(u, a, b);
-    if (DEL && a) return bookCostsDelete(u, a);
+  /* ───── 운영비 관리 — 교재비·문구류/간식비·기타 (관리자만) ───── */
+  if (head === 'op-costs') {
+    if (GET && a === 'vendors') return opVendors(u, q && q.kind);
+    if (GET && a === 'items' && c) return opCostsItems(u, c);
+    if (GET && !a) return opCostsList(u, q);
+    if (PUT && a === 'items' && c) return opCostsSave(u, c, b);
+    if (DEL && a === 'item' && c) return opCostsDelete(u, c);
   }
 
   /* ───── 통째로 내보내기 (파이어베이스 이전용) ───── */

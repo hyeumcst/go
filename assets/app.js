@@ -802,7 +802,7 @@ function initApp() {
             item('tax', '세금계산서')
           ])}
           ${section('기타 세부관리', [
-            item('book-costs', '교재비'),
+            item('op-costs', '운영비 관리'),
             item('ent-client', '고객사'),
             item('ent-instructor', '강사별 매입'),
             item('ent-partner', '협력사별 매입'),
@@ -1047,7 +1047,8 @@ function navigate(route, params = null) {
     case 'visits': renderVisits(); break;
     case 'tax': renderTax(); break;
     case 'overheads': renderOverheads(); break;
-    case 'book-costs': renderBookCosts(); break;
+    /* 'book-costs' 는 예전 이름이다 — 즐겨찾기를 해 두셨을 수 있어 함께 받는다 */
+    case 'op-costs': case 'book-costs': renderOpCosts(); break;
     case 'ent-client': renderEntity('client'); break;
     case 'ent-instructor': renderEntity('instructor'); break;
     case 'ent-partner': renderEntity('partner'); break;
@@ -7675,59 +7676,63 @@ async function deleteCard(id) {
   } catch (e) { showToast(e.message, 'error'); }
 }
 
-
-// ═══════════ 교재비 ═══════════
+// ═══════════ 운영비 관리 ═══════════
 /*
- * 인쇄업체에 실제로 드린 돈을 과정별로 적어 둡니다.
+ * 교재비 · 문구류/간식비 · 기타를 과정별로 적습니다.
  * (대표님 지시 2026-10-28)
  *
- * 왜 따로 두는가
- *   매출에 적힌 교재비는 고객사에 **받는** 돈이고, 여기 적는 것은
- *   인쇄업체에 **주는** 돈입니다. 둘은 다르고 보통 맞지도 않습니다.
+ * ── 자료를 두 벌 두지 않습니다 ──
  *
- *   인쇄업체는 월말에 견적서 한 장으로 묶어서 보냅니다. 그 한 장을
- *   과정별로 쪼개 적어 두어야, 달이 끝났을 때 합계가 견적서와
- *   맞는지 볼 수 있습니다.
+ * 여기서 적는 한 줄이 **그 과정의 매입 줄 그 자체**입니다. 따로 적어
+ * 두었다가 매입으로 옮기는 것이 아니라, 같은 한 줄을 창구 두 곳에서
+ * 보는 것입니다. 두 벌이면 한쪽만 고쳐져 금액이 조용히 어긋납니다.
+ *
+ * ── 달은 교육일정 기준입니다 ──
+ *
+ * 등록일이 아니라 **교육을 한 날**로 가릅니다. 10월을 고르시면 10월에
+ * 교육을 한 과정이 나옵니다.
  *
  * 관리자만 씁니다.
  */
-const BOOK = { month: '', q: '' };
-/* 인쇄업체 목록 — 협력사 가운데 「교재」 가 붙은 곳 (서버가 추려 준다) */
-let BOOK_VENDORS = [];
+const OP = { month: '', q: '', open: 0, tab: 'book' };
 
-/*
- * 견적서 월 고르는 칸에 넣을 달들.
- *
- * 2026년 1월부터 「올해 다음 해 12월」까지 만든다. 해가 바뀌면 저절로
- * 늘어나므로 손볼 일이 없다. (대표님 지시 2026-10-28)
- */
-function bookMonths() {
-  const to = new Date().getFullYear() + 1;
-  const out = [];
-  for (let y = 2026; y <= to; y++) {
-    for (let m = 1; m <= 12; m++) out.push(y + '-' + String(m).padStart(2, '0'));
-  }
-  return out.reverse();                 // 최근 달이 위로
+/* 서버가 주는 탭 정의 — 항목명 보기 · 고를 수 있는 세율이 여기 들어 있다 */
+let OP_TABS_DEF = [];
+/* 업체 목록 (탭마다 다르다) · 펼쳐 놓은 과정의 항목들 */
+const OP_VENDORS = {};
+let OP_ITEMS = null;
+
+function opTabDef(key) {
+  return OP_TABS_DEF.filter(function (t) { return t.key === key; })[0]
+    || { key: key, label: '', names: [], taxes: ['세금계산서(과세)'], hint: '' };
 }
-function bookMonthLabel(v) {
+
+function opMonthLabel(v) {
   const m = String(v || '').match(/^(\d{4})-(\d{2})$/);
   return m ? (m[1] + '년 ' + Number(m[2]) + '월') : String(v || '');
 }
 
-async function renderBookCosts() {
+/** 처음 들어오시면 이번 달을 보여 드린다 */
+function opThisMonth() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+async function renderOpCosts() {
   if (!API.isAdmin()) return showToast('관리자만 사용할 수 있습니다.', 'error');
-  REDRAW = renderBookCosts;
+  REDRAW = renderOpCosts;
   const content = document.getElementById('main-content');
+  if (OP.month === '') OP.month = opThisMonth();
 
   let d;
-  try {
-    const [rows, v] = await Promise.all([
-      API.getBookCosts(BOOK),
-      API.getBookVendors().catch(function () { return { vendors: [] }; })
-    ]);
-    d = rows;
-    BOOK_VENDORS = v.vendors || [];
-  } catch (e) { showToast(e.message, 'error'); return; }
+  try { d = await API.getOpCosts({ month: OP.month, q: OP.q }); }
+  catch (e) { showToast(e.message, 'error'); return; }
+  OP_TABS_DEF = d.tabs || [];
+
+  /* 고르신 달에 교육이 없으면 그 달도 목록에 넣어 둔다 (빈 채로 보이게) */
+  const months = (d.months || []).slice();
+  if (OP.month && months.indexOf(OP.month) < 0) months.push(OP.month);
+  months.sort().reverse();
 
   const t = d.totals || {};
   const opt = (v, label, cur) =>
@@ -7736,235 +7741,318 @@ async function renderBookCosts() {
 
   content.innerHTML = [
     '<div class="page-header">',
-    '  <div><h2>교재비</h2>',
-    '    <div class="subtitle">인쇄업체에 실제로 드린 돈을 과정별로 적어 둡니다.',
-    '      매출에 적힌 교재비는 <b>받는 돈</b>, 여기 적는 것은 <b>주는 돈</b>입니다.',
-    '      인쇄업체 견적서가 월말에 한 장으로 오므로, 견적서 월을 적어 두면 달마다 맞춰 볼 수 있습니다.</div></div>',
-    '  <button class="btn btn-primary" onclick="openBookPick()">＋ 과정 추가</button>',
+    '  <div><h2>운영비 관리</h2>',
+    '    <div class="subtitle">교재비 · 문구류/간식비 · 기타를 과정별로 적습니다.',
+    '      여기 적은 줄은 <b>그 과정의 매입</b>에 그대로 들어갑니다 — 따로 옮기실 것이 없습니다.</div></div>',
     '</div>',
 
     '<div class="list-filter">',
-    '  <div class="f-search">',
-    '    <input type="text" id="book-q" class="form-input" placeholder="과정명 · 고객사 검색"',
-    '      value="' + esc(BOOK.q) + '" oninput="onBookSearch(this.value)">',
-    '  </div>',
-    '  <select class="form-select" onchange="setBook(\'month\', this.value)">',
-    opt('', '견적서 월 전체', BOOK.month),
-    bookMonths().map(m => opt(m, bookMonthLabel(m), BOOK.month)).join(''),
+    '  <select class="form-select" style="max-width:11rem" onchange="setOp(\'month\', this.value)">',
+    opt('', '달 전체', OP.month),
+    months.map(m => opt(m, opMonthLabel(m), OP.month)).join(''),
     '  </select>',
-    ((BOOK.q || BOOK.month) ? '<button class="btn btn-ghost btn-sm" onclick="resetBook()">✕ 조건 지우기</button>' : ''),
+    '  <div class="f-search">',
+    '    <input type="text" id="op-q" class="form-input" placeholder="과정명 · 고객사 검색"',
+    '      value="' + esc(OP.q) + '" oninput="onOpSearch(this.value)">',
+    '  </div>',
+    ((OP.q || OP.month) ? '<button class="btn btn-ghost btn-sm" onclick="resetOp()">✕ 조건 지우기</button>' : ''),
     '</div>',
 
-    /* 달을 고르셨으면 그 달 견적서와 맞춰 보는 줄 */
+    '<div class="op-note">달은 <b>교육일정</b> 기준입니다. '
+      + (OP.month ? esc(opMonthLabel(OP.month)) + '에 <b>교육을 한</b> 과정이 나옵니다.'
+                  : '달을 고르시면 그 달에 교육을 한 과정만 나옵니다.') + '</div>',
+
     '<div class="stats-grid" style="margin-bottom:1rem">',
-    bookStat('과정', formatNumber(t.count || 0) + '건',
-      (t.filled || 0) + '건 적음 · ' + ((t.count || 0) - (t.filled || 0)) + '건 남음'),
-    bookStat('매출의 교재비', formatNumber(t.sales || 0) + '원', '고객사에 받는 돈'),
-    bookStat('실제 교재비', formatNumber(t.paid || 0) + '원',
-      BOOK.month ? '이 달 견적서와 맞춰 보세요' : '인쇄업체에 주는 돈'),
-    bookStat('이익', formatNumber(t.margin || 0) + '원', '받는 돈 − 주는 돈',
-      (t.margin || 0) < 0 ? 'danger' : ''),
+    opStat('과정', formatNumber(t.count || 0) + '건',
+      formatNumber(t.filled || 0) + '건에 적으셨습니다'),
+    opStat('교재비', formatNumber(t.book || 0) + '원', '인쇄업체에 드린 돈'),
+    opStat('문구류 · 간식비', formatNumber(t.supply || 0) + '원', '계산서 · 카드'),
+    opStat('기타', formatNumber(t.etc || 0) + '원', '버스비 · 현수막 등'),
     '</div>',
 
-    (d.rows || []).length
-      ? bookTable(d.rows)
-      : '<div class="empty-state"><p>적을 과정이 없습니다. 매출에 교재가 있는 과정이 여기 나옵니다.</p>'
-        + '<p class="form-hint">매출에 없더라도 <b>＋ 과정 추가</b> 로 고르실 수 있습니다.</p></div>'
+    '<div class="table-container">',
+    '  <table class="data-table op-table">',
+    '    <thead><tr>',
+    '      <th>교육일</th><th>과정명</th><th>고객사</th>',
+    '      <th class="th-r">매출 운영비</th>',
+    '      <th class="th-r">교재비</th><th class="th-r">문구류·간식</th><th class="th-r">기타</th>',
+    '      <th class="th-r">합계</th><th></th>',
+    '    </tr></thead>',
+    '    <tbody>',
+    ((d.rows || []).length === 0
+      ? '<tr><td colspan="9"><div class="empty-state" style="padding:2rem"><p>'
+        + (OP.q ? '찾는 과정이 없습니다.'
+                : esc(opMonthLabel(OP.month) || '고르신 달') + '에 교육한 과정이 없습니다.')
+        + '</p></div></td></tr>'
+      : d.rows.map(opProjectRow).join('')),
+    '    </tbody>',
+    '  </table>',
+    '</div>'
   ].join('');
 }
 
-function bookStat(label, value, hint, kind) {
+function opStat(label, value, hint, kind) {
   return '<div class="stat-card' + (kind ? ' ' + kind : '') + '">'
     + '<div class="stat-label">' + esc(label) + '</div>'
-    + '<div class="stat-value">' + esc(value) + '</div>'
-    + '<div class="stat-hint">' + esc(hint) + '</div></div>';
+    + '<div class="stat-value">' + value + '</div>'
+    + '<div class="stat-hint">' + esc(hint || '') + '</div></div>';
 }
 
-function bookTable(rows) {
-  return [
-    '<div class="table-container"><table class="data-table book-table">',
-    '<thead><tr>',
-    '  <th>과정</th><th>고객사</th>',
-    '  <th>매출의 교재 항목</th><th class="th-r">매출 금액</th>',
-    '  <th class="th-r">실제 교재비</th><th class="th-r">이익</th>',
-    '  <th>인쇄업체</th><th>견적서 월</th><th>비고</th><th></th>',
-    '</tr></thead><tbody>',
-    rows.map(bookRow).join(''),
-    '</tbody></table></div>'
-  ].join('');
-}
+/** 과정 한 줄 — 누르면 바로 아래에 탭이 펼쳐진다 */
+function opProjectRow(r) {
+  const open = Number(OP.open) === Number(r.project_id);
+  const s = r.sums || {};
+  const num = (v) => (v ? formatNumber(v) : '<span class="muted">-</span>');
 
-function bookRow(r) {
-  const p = r.project_id;
-  /*
-   * 매출 항목은 **이름까지** 보여줍니다.
-   * 「교재, 볼펜, 간식, 현수막」 처럼 묶여 적힌 경우가 있어서,
-   * 금액만 보면 교재만의 값인지 알 수 없습니다.
-   */
-  const lines = (r.sales_lines || []).length
-    ? (r.sales_lines || []).map(function (s) {
-        return '<div class="book-line">' + esc(s.name)
-          + ' <b>' + formatNumber(s.amount) + '</b></div>';
-      }).join('')
-    : '<span class="muted">매출에 없습니다</span>';
-
-  /* 이익 = 고객사에 받는 돈 − 인쇄업체에 주는 돈 */
-  const margin = (r.margin === null || r.margin === undefined)
-    ? '<span class="muted">-</span>'
-    : '<span class="' + (r.margin < 0 ? 'neg' : '') + '">' + formatNumber(r.margin) + '</span>';
-
-  return '<tr>'
-    + '<td><a href="#" onclick="navigate(\'project-form\',' + p + ');return false">'
-    +   esc(r.course_name || '(이름 없음)') + '</a>'
-    +   '<div class="sub-text">' + esc(r.schedule || '') + '</div></td>'
+  const row = '<tr class="op-proj' + (open ? ' on' : '') + '"'
+    + ' onclick="openOpProject(' + r.project_id + ')">'
+    + '<td class="op-date">' + esc(r.schedule || '-') + '</td>'
+    + '<td style="font-weight:600">' + esc(r.course_name || '-') + '</td>'
     + '<td>' + esc(r.client_name || '-') + '</td>'
-    + '<td class="book-lines">' + lines + '</td>'
-    + '<td class="ta-r">' + formatNumber(r.sales_total || 0) + '</td>'
-    + '<td class="ta-r"><input type="text" class="form-input ta-r book-amt"'
-    +   ' value="' + (r.amount === null ? '' : formatNumber(r.amount)) + '"'
-    +   ' placeholder="적어주세요"'
-    +   ' onblur="this.value=this.value?formatNumber(parseNumber(this.value)):\'\'"'
-    +   ' onchange="saveBook(' + p + ', this)"></td>'
-    + '<td class="ta-r">' + margin + '</td>'
-    + '<td>' + bookVendorPick(p, r.vendor || '') + '</td>'
-    + '<td>' + bookMonthPick(p, r.bill_month || '') + '</td>'
-    + '<td><input type="text" class="form-input book-note" value="' + esc(r.note || '') + '"'
-    +   ' placeholder="비고" onchange="saveBook(' + p + ', this)"></td>'
-    + '<td class="ta-c">'
-    +   (r.id ? '<button type="button" class="btn btn-ghost btn-sm" title="적어 둔 교재비 지우기"'
-    +     ' onclick="removeBook(' + p + ')">✖</button>' : '')
-    + '</td>'
+    + '<td class="td-r muted">' + num(r.sale_operation) + '</td>'
+    + '<td class="td-r">' + num(s.book) + '</td>'
+    + '<td class="td-r">' + num(s.supply) + '</td>'
+    + '<td class="td-r">' + num(s.etc) + '</td>'
+    + '<td class="td-r" style="font-weight:700">' + num(s.total) + '</td>'
+    + '<td class="op-caret">' + (open ? '▾' : '▸') + '</td>'
     + '</tr>';
+
+  if (!open) return row;
+  return row + '<tr class="op-panel-row"><td colspan="9">' + opPanel(r) + '</td></tr>';
 }
 
-/*
- * 인쇄업체 고르기.
- * 협력사 가운데 「교재」 가 붙은 곳만 나온다 (서버가 추려 준다).
- * 새 업체는 협력사에 교재라고 적어 등록하시면 저절로 여기 들어온다.
- */
-function bookVendorPick(projectId, cur) {
-  const list = BOOK_VENDORS.slice();
-  /* 적어 둔 업체가 목록에 없더라도 지워지지 않게 넣어 둔다 */
-  if (cur && list.indexOf(cur) < 0) list.push(cur);
-  return '<select class="form-select book-vendor" onchange="saveBook(' + projectId + ', this)">'
-    + '<option value=""' + (cur ? '' : ' selected') + '>고르세요</option>'
+/** 펼친 내용 — 탭 세 개와 그 탭의 항목 표 */
+function opPanel(r) {
+  if (!OP_ITEMS || Number(OP_ITEMS.project_id) !== Number(r.project_id)) {
+    return '<div class="op-panel"><div class="op-loading">불러오는 중…</div></div>';
+  }
+  const def = opTabDef(OP.tab);
+  const items = (OP_ITEMS.items || {})[OP.tab] || [];
+  const sub = items.reduce(function (a, x) { return a + (x.amount || 0); }, 0);
+
+  return '<div class="op-panel">'
+    + '<div class="op-tabs">'
+    +   OP_TABS_DEF.map(function (tab) {
+          const n = ((OP_ITEMS.items || {})[tab.key] || []).length;
+          return '<button class="op-tab' + (tab.key === OP.tab ? ' on' : '') + '"'
+            + ' onclick="setOpTab(\'' + tab.key + '\')">' + esc(tab.label)
+            + (n ? ' <span class="op-cnt">' + n + '</span>' : '') + '</button>';
+        }).join('')
+    + '</div>'
+
+    + '<div class="op-hint">' + esc(def.hint || '') + '</div>'
+
+    + '<table class="op-items">'
+    + '<thead><tr>'
+    +   '<th>항목</th><th>업체</th><th class="th-r">금액</th><th>세율</th>'
+    +   '<th>견적서 월</th><th>비고</th><th></th>'
+    + '</tr></thead><tbody>'
+    + (items.length === 0
+        ? '<tr><td colspan="7" class="op-empty">아직 적으신 것이 없습니다. 아래 [＋ 항목 추가]를 눌러주세요.</td></tr>'
+        : items.map(opItemRow).join(''))
+    + '</tbody></table>'
+
+    + '<div class="op-foot">'
+    +   '<button class="btn btn-outline btn-sm" onclick="addOpItem()">＋ 항목 추가</button>'
+    +   '<div class="op-sub">'
+    +     '<span>' + esc(def.label) + ' 소계 <b>' + formatNumber(sub) + '</b>원</span>'
+    +     (OP.tab === 'book' && OP_ITEMS.sale_book
+          ? '<span>매출의 교재 <b>' + formatNumber(OP_ITEMS.sale_book) + '</b>원'
+            + ' · 이익 <b class="' + ((OP_ITEMS.sale_book - sub) < 0 ? 'neg' : '') + '">'
+            + formatNumber(OP_ITEMS.sale_book - sub) + '</b>원</span>'
+          : '')
+    +     '<span>이 과정 운영비 모두 <b>' + formatNumber((OP_ITEMS.sums || {}).total || 0) + '</b>원</span>'
+    +   '</div>'
+    + '</div>'
+    + '</div>';
+}
+
+/** 항목 한 줄 — 칸을 고치면 바로 저장되고 매입에도 반영된다 */
+function opItemRow(it) {
+  const def = opTabDef(OP.tab);
+  const id = it.id;
+  const names = def.names || [];
+  const vendors = (OP_VENDORS[OP.tab] || []).slice();
+  if (it.vendor && vendors.indexOf(it.vendor) < 0) vendors.push(it.vendor);
+
+  const pick = (cls, list, cur, placeholder) =>
+    '<select class="form-select ' + cls + '" onchange="saveOpItem(' + id + ', this)">'
+    + '<option value="">' + esc(placeholder) + '</option>'
     + list.map(function (v) {
         return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>'
           + esc(v) + '</option>';
       }).join('')
+    + (cur && list.indexOf(cur) < 0
+        ? '<option value="' + esc(cur) + '" selected>' + esc(cur) + '</option>' : '')
     + '</select>';
-}
 
-/** 견적서 월 고르기 — 2026년 1월부터, 해가 바뀌면 저절로 늘어난다 */
-function bookMonthPick(projectId, cur) {
-  const list = bookMonths();
-  if (cur && list.indexOf(cur) < 0) list.unshift(cur);
-  return '<select class="form-select book-month" onchange="saveBook(' + projectId + ', this)">'
-    + '<option value=""' + (cur ? '' : ' selected') + '>고르세요</option>'
-    + list.map(function (v) {
-        return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>'
-          + bookMonthLabel(v) + '</option>';
-      }).join('')
-    + '</select>';
-}
+  const card = String(it.tax_type || '').indexOf('카드') === 0;
 
-/** 한 줄의 네 칸을 함께 보낸다 — 한 칸만 고쳐도 나머지가 지워지면 안 된다 */
-async function saveBook(projectId, el) {
-  const tr = el.closest('tr');
-  const data = {
-    amount: parseNumber((tr.querySelector('.book-amt') || {}).value || ''),
-    vendor: (tr.querySelector('.book-vendor') || {}).value || '',
-    bill_month: ((tr.querySelector('.book-month') || {}).value || '').trim(),
-    note: (tr.querySelector('.book-note') || {}).value || ''
-  };
-  try {
-    await API.saveBookCost(projectId, data);
-    showToast('교재비를 적었습니다.', 'success');
-    renderBookCosts();
-  } catch (e) { showToast(e.message, 'error'); }
-}
-
-async function removeBook(projectId) {
-  if (!confirm('적어 둔 교재비를 지울까요?\n과정과 매출은 그대로 둡니다.')) return;
-  try {
-    await API.deleteBookCost(projectId);
-    showToast('지웠습니다.', 'success');
-    renderBookCosts();
-  } catch (e) { showToast(e.message, 'error'); }
-}
-
-let bookSearchTimer = null;
-function onBookSearch(v) {
-  BOOK.q = v;
-  clearTimeout(bookSearchTimer);
-  bookSearchTimer = setTimeout(renderBookCosts, 250);
-}
-function setBook(k, v) { BOOK[k] = v; renderBookCosts(); }
-function resetBook() { BOOK.q = ''; BOOK.month = ''; renderBookCosts(); }
-
-/* ───────── 과정 고르기 ───────── */
-
-async function openBookPick(q) {
-  let d;
-  try { d = await API.pickBookProject(q || ''); }
-  catch (e) { showToast(e.message, 'error'); return; }
-
-  let ov = document.querySelector('.modal-overlay[data-role="book-pick"]');
-  if (!ov) {
-    ov = document.createElement('div');
-    ov.className = 'modal-overlay';
-    ov.dataset.role = 'book-pick';
-    document.body.appendChild(ov);
-  }
-  ov.innerHTML = [
-    '<div class="modal">',
-    '  <div class="modal-head"><h3>어느 과정의 교재비인가요?</h3>',
-    '    <button type="button" class="modal-x" onclick="closeBookPick()">✕</button></div>',
-    '  <div class="modal-body">',
-    '    <input type="text" id="book-pick-q" class="form-input" placeholder="과정명 · 고객사로 찾기"',
-    '      value="' + esc(q || '') + '" oninput="onBookPickSearch(this.value)">',
-    '    <div class="book-pick-list">',
-    (d.projects || []).length
-      ? (d.projects || []).map(function (p) {
-          const has = (p.sales_lines || []).length
-            ? '매출의 교재 ' + formatNumber(p.sales_total) + '원'
-            : '매출에 교재가 없습니다';
-          return '<div class="book-pick-one" onclick="pickBookProject(' + p.project_id + ')">'
-            + '<div class="main-text">' + esc(p.course_name || '(이름 없음)') + '</div>'
-            + '<div class="sub-text">' + esc(p.client_name || '-')
-            +   ' · ' + esc(p.schedule || '') + ' · ' + esc(has) + '</div>'
-            + '</div>';
+  return '<tr data-op="' + id + '">'
+    /* 항목명 — 보기에서 고르거나 직접 적으실 수 있게 둘 다 둔다 */
+    /*
+     * 보기에 있는 이름이면 아래 칸은 비워 둔다. 같은 글자가 두 번 보이면
+     * 둘 다 적어야 하는 줄 아신다.
+     */
+    + '<td class="op-name">'
+    +   pick('op-f-name', names, it.name, '고르세요')
+    +   '<input type="text" class="form-input op-f-name2"'
+    +     ' value="' + esc(names.indexOf(it.name) >= 0 ? '' : (it.name || '')) + '"'
+    +     ' placeholder="직접 적기" onchange="saveOpItem(' + id + ', this)">'
+    + '</td>'
+    + '<td>' + pick('op-f-vendor', vendors, it.vendor, '업체 고르기') + '</td>'
+    + '<td class="td-r"><input type="text" class="form-input op-f-amount amt"'
+    +   ' value="' + (it.amount ? formatNumber(it.amount) : '') + '" placeholder="0"'
+    +   ' onchange="saveOpItem(' + id + ', this)"></td>'
+    + '<td>'
+    +   '<select class="form-select op-f-tax" onchange="saveOpItem(' + id + ', this)">'
+    +   (def.taxes || []).map(function (v) {
+          return '<option value="' + esc(v) + '"' + (v === it.tax_type ? ' selected' : '') + '>'
+            + esc(v) + '</option>';
         }).join('')
-      : '<div class="an-empty">찾으시는 과정이 없습니다.</div>',
-    '    </div>',
-    '  </div>',
-    '</div>'
-  ].join('');
-  const box = document.getElementById('book-pick-q');
-  if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+    +   '</select>'
+    +   (card
+        ? '<input type="text" class="form-input op-f-card" maxlength="4" placeholder="카드 끝 4자리"'
+          + ' value="' + esc(it.card_last4 || '') + '"'
+          + ' onchange="saveOpItem(' + id + ', this)">'
+        : '')
+    + '</td>'
+    + '<td>' + pick('op-f-month', opBillMonths(), it.bill_month, '없음') + '</td>'
+    + '<td><input type="text" class="form-input op-f-note" value="' + esc(it.note || '') + '"'
+    +   ' placeholder="비고" onchange="saveOpItem(' + id + ', this)"></td>'
+    + '<td><button class="btn btn-ghost btn-sm op-del" title="이 줄을 지웁니다 (매입에서도 사라집니다)"'
+    +   ' onclick="removeOpItem(' + id + ')">✖</button></td>'
+    + '</tr>';
 }
 
-let bookPickTimer = null;
-function onBookPickSearch(v) {
-  clearTimeout(bookPickTimer);
-  bookPickTimer = setTimeout(function () { openBookPick(v); }, 250);
-}
-
-function closeBookPick() {
-  const ov = document.querySelector('.modal-overlay[data-role="book-pick"]');
-  if (ov) ov.remove();
-}
-
-/*
- * 고른 과정을 목록에 올린다.
- * 금액을 0 으로 한 줄을 만들어 두면, 목록에 나타나 바로 적으실 수 있다.
+/**
+ * 견적서 월 보기.
+ * 고르신 달을 가운데 두고 앞뒤로 조금씩 — 업체는 보통 그 달이나
+ * 다음 달에 견적서를 보냅니다.
  */
-async function pickBookProject(projectId) {
+function opBillMonths() {
+  const base = OP.month || opThisMonth();
+  const y = Number(base.slice(0, 4)), m = Number(base.slice(5, 7));
+  const out = [];
+  for (let d = -6; d <= 6; d++) {
+    let yy = y, mm = m + d;
+    while (mm < 1) { mm += 12; yy--; }
+    while (mm > 12) { mm -= 12; yy++; }
+    out.push(yy + '-' + String(mm).padStart(2, '0'));
+  }
+  return out.reverse();
+}
+
+/* ───────── 움직임 ───────── */
+
+async function openOpProject(projectId) {
+  if (Number(OP.open) === Number(projectId)) {    // 다시 누르면 접는다
+    OP.open = 0; OP_ITEMS = null;
+    return renderOpCosts();
+  }
+  OP.open = projectId;
+  OP_ITEMS = null;
+  await renderOpCosts();
+  await loadOpItems();
+}
+
+/** 펼친 과정의 항목과 업체 목록을 받아 온다 */
+async function loadOpItems() {
+  if (!OP.open) return;
   try {
-    await API.saveBookCost(projectId, { amount: 0, vendor: '', bill_month: '', note: '' });
-    closeBookPick();
-    BOOK.q = ''; BOOK.month = '';
-    await renderBookCosts();
-    showToast('목록에 올렸습니다. 실제 교재비를 적어주세요.', 'success');
+    const [items, v] = await Promise.all([
+      API.getOpItems(OP.open),
+      (OP_VENDORS[OP.tab] ? Promise.resolve({ vendors: OP_VENDORS[OP.tab] })
+                          : API.getOpVendors(OP.tab).catch(function () { return { vendors: [] }; }))
+    ]);
+    OP_ITEMS = items;
+    OP_VENDORS[OP.tab] = v.vendors || [];
+    await renderOpCosts();
   } catch (e) { showToast(e.message, 'error'); }
 }
+
+async function setOpTab(kind) {
+  OP.tab = kind;
+  if (!OP_VENDORS[kind]) {
+    try { OP_VENDORS[kind] = (await API.getOpVendors(kind)).vendors || []; }
+    catch (e) { OP_VENDORS[kind] = []; }
+  }
+  await renderOpCosts();
+}
+
+/**
+ * 항목 추가 — 빈 줄을 바로 만든다.
+ *
+ * 금액이 0 이라 합계는 달라지지 않습니다. 금액을 적으시는 순간
+ * 그 과정의 매입 합계에 들어갑니다.
+ */
+async function addOpItem() {
+  if (!OP.open) return;
+  const def = opTabDef(OP.tab);
+  try {
+    const r = await API.saveOpItem(OP.open, {
+      kind: OP.tab, name: (def.names || [])[0] || '', vendor: '',
+      amount: 0, tax_type: (def.taxes || [])[0] || '세금계산서(과세)',
+      bill_month: '', note: ''
+    });
+    OP_ITEMS = r.detail;
+    await renderOpCosts();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+/**
+ * 한 칸을 고치면 그 줄 전체를 함께 보낸다.
+ * 한 칸만 보내면 서버가 나머지를 비운 것으로 보아 지워 버린다.
+ */
+async function saveOpItem(id, el) {
+  const tr = el.closest('tr[data-op]');
+  if (!tr) return;
+  const val = (cls) => {
+    const f = tr.querySelector('.' + cls);
+    return f ? f.value : '';
+  };
+
+  /*
+   * 항목명은 고르는 칸과 직접 적는 칸이 둘 다 있다.
+   * 방금 건드린 쪽을 쓰고, 그 밖의 칸을 고치셨으면 직접 적으신 것을
+   * 먼저 본다 (고르는 칸은 보기에 없는 이름을 담지 못한다).
+   */
+  let name;
+  if (el.classList.contains('op-f-name')) name = el.value;
+  else name = val('op-f-name2') || val('op-f-name');
+
+  try {
+    const r = await API.saveOpItem(OP.open, {
+      id: id,
+      kind: OP.tab,
+      name: name,
+      vendor: val('op-f-vendor'),
+      amount: parseNumber(val('op-f-amount')),
+      tax_type: val('op-f-tax'),
+      card_last4: val('op-f-card'),
+      bill_month: val('op-f-month'),
+      note: val('op-f-note')
+    });
+    OP_ITEMS = r.detail;
+    await renderOpCosts();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function removeOpItem(id) {
+  if (!confirm('이 줄을 지웁니다. 그 과정의 매입에서도 함께 사라집니다.')) return;
+  try {
+    const r = await API.deleteOpItem(id);
+    OP_ITEMS = r.detail;
+    showToast('지웠습니다.', 'success');
+    await renderOpCosts();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+let opSearchTimer = null;
+function onOpSearch(v) {
+  OP.q = v;
+  clearTimeout(opSearchTimer);
+  opSearchTimer = setTimeout(function () { OP.open = 0; OP_ITEMS = null; renderOpCosts(); }, 250);
+}
+function setOp(k, v) { OP[k] = v; OP.open = 0; OP_ITEMS = null; renderOpCosts(); }
+function resetOp() { OP.q = ''; OP.month = ''; OP.open = 0; OP_ITEMS = null; renderOpCosts(); }

@@ -264,12 +264,12 @@ const API = {
   downloadInstructorRoster() { return this._settle('/export/instructors', '강사명단'); },
   downloadExcel(params = {}) { return this._settle('/export/excel' + this.qs(params), '정산자료'); },
 
-  /* ───── 교재비 (관리자만) ───── */
-  getBookCosts(params = {}) { return this.get('/book-costs' + this.qs(params)); },
-  pickBookProject(q) { return this.get('/book-costs/pick' + this.qs({ q: q })); },
-  getBookVendors() { return this.get('/book-costs/vendors'); },
-  saveBookCost(projectId, data) { return this.put('/book-costs/' + projectId, data); },
-  deleteBookCost(projectId) { return this.delete('/book-costs/' + projectId); },
+  /* ───── 운영비 관리 (관리자만) ───── */
+  getOpCosts(params = {}) { return this.get('/op-costs' + this.qs(params)); },
+  getOpItems(projectId) { return this.get('/op-costs/items/' + projectId); },
+  getOpVendors(kind) { return this.get('/op-costs/vendors' + this.qs({ kind: kind })); },
+  saveOpItem(projectId, item) { return this.put('/op-costs/items/' + projectId, item); },
+  deleteOpItem(expenseId) { return this.delete('/op-costs/item/' + expenseId); },
 
   /* ───── 엑셀로 한꺼번에 고치기 ───── */
 

@@ -2808,35 +2808,6 @@ tr.v-done td { background: var(--success-bg); }
   border: 1px solid var(--border); border-radius: 0.6rem;
 }
 
-/* ── 교재비 ──
-   매출에 적힌 교재비(받는 돈)와 인쇄업체에 드린 돈(주는 돈)을
-   한 줄에 나란히 놓고 봅니다. (대표님 지시 2026-10-28) */
-.book-table td { vertical-align: middle; }
-.book-table .form-input, .book-table .form-select { padding: 0.4rem 0.55rem; font-size: 0.82rem; min-width: 0; }
-.book-table .book-amt { width: 7.5rem; font-weight: 700; }
-.book-table .book-vendor { width: 9.5rem; }
-.book-table .book-month { width: 8rem; }
-.book-table .book-note { width: 9rem; }
-.book-table .ta-r { text-align: right; }
-.book-table .ta-c { text-align: center; }
-.book-table .th-r { text-align: right; }
-/* 매출 항목은 이름까지 보여준다 — 「교재, 볼펜, 간식」 처럼 묶인 것이 있다 */
-.book-lines { max-width: 16rem; }
-.book-line { font-size: 0.78rem; color: var(--text-secondary); line-height: 1.5; }
-.book-line b { color: var(--text-primary); }
-.book-table .muted { color: var(--text-muted); }
-.book-table .neg { color: var(--danger); font-weight: 600; }
-
-/* 과정 고르는 창 */
-.book-pick-list { margin-top: 0.75rem; max-height: 22rem; overflow-y: auto; }
-.book-pick-one {
-  padding: 0.6rem 0.75rem; border: 1px solid var(--border);
-  border-radius: var(--radius-sm); margin-bottom: 0.4rem; cursor: pointer;
-}
-.book-pick-one:hover { background: var(--bg-card-hover); border-color: var(--accent-glow); }
-.book-pick-one .main-text { font-weight: 600; font-size: 0.88rem; }
-.book-pick-one .sub-text { font-size: 0.76rem; color: var(--text-muted); margin-top: 0.15rem; }
-
 /* ── 강사 목록 — 한 분당 한 줄 ──
  *
  * 331명을 카드로 늘어놓으니 한 화면에 열 분밖에 안 들어오고
@@ -2847,3 +2818,83 @@ tr.v-done td { background: var(--success-bg); }
 .inst-table .inst-code { color: var(--text-muted); font-weight: 600; white-space: nowrap; }
 .inst-table .inst-act { white-space: nowrap; text-align: right; }
 .inst-table .inst-act .btn { margin-left: 0.35rem; }
+
+/* ── 운영비 관리 ──
+ *
+ * 달(교육일정 기준)을 고르면 그 달 과정이 줄로 나오고, 과정을 누르면
+ * 바로 아래에 교재비 · 문구류/간식비 · 기타 탭이 펼쳐집니다.
+ * (대표님 지시 2026-10-28)
+ */
+.op-note {
+  font-size: 0.8rem; color: var(--text-secondary);
+  background: var(--info-bg); border: 1px solid rgba(59,130,246,0.2);
+  border-radius: var(--radius-sm); padding: 0.5rem 0.8rem; margin-bottom: 1rem;
+}
+.op-table .th-r, .op-table .td-r { text-align: right; white-space: nowrap; }
+.op-table .op-date { white-space: nowrap; color: var(--text-secondary); font-size: 0.8rem; }
+.op-table .muted { color: var(--text-muted); }
+.op-table .op-caret { width: 2rem; text-align: center; color: var(--text-muted); }
+.op-table tr.op-proj { cursor: pointer; }
+.op-table tr.op-proj.on td { background: var(--bg-secondary); font-weight: 600; }
+.op-table tr.op-panel-row td { padding: 0; background: var(--bg-secondary); }
+.op-table tr.op-panel-row:hover td { background: var(--bg-secondary); }
+
+.op-panel { padding: 0.9rem 1rem 1.1rem; border-top: 2px solid var(--accent); }
+.op-loading { padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
+
+/* 탭 — 교재비 · 문구류 및 간식비 · 기타 */
+.op-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+.op-tab {
+  padding: 0.45rem 0.9rem; font-size: 0.84rem; font-weight: 600; cursor: pointer;
+  color: var(--text-secondary); background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.op-tab:hover { border-color: var(--accent-glow); }
+.op-tab.on { color: #fff; background: var(--accent); border-color: var(--accent); }
+.op-cnt {
+  display: inline-block; margin-left: 0.3rem; padding: 0 0.35rem;
+  font-size: 0.7rem; border-radius: 0.6rem;
+  background: rgba(255,255,255,0.25);
+}
+.op-tab:not(.on) .op-cnt { background: var(--bg-secondary); color: var(--text-muted); }
+
+.op-hint { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.6rem; }
+
+/* 항목 표 */
+.op-items { width: 100%; border-collapse: collapse; font-size: 0.82rem; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.op-items th {
+  padding: 0.5rem 0.6rem; text-align: left; font-size: 0.72rem; font-weight: 600;
+  color: var(--text-muted); background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.op-items td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.op-items tr:last-child td { border-bottom: none; }
+.op-items .th-r { text-align: right; }
+.op-items .td-r { text-align: right; }
+.op-items .form-input, .op-items .form-select { padding: 0.35rem 0.5rem; font-size: 0.8rem; min-width: 0; }
+.op-items .op-f-amount { width: 7rem; font-weight: 700; text-align: right; }
+.op-items .op-f-vendor { width: 10rem; }
+.op-items .op-f-tax { width: 11rem; }
+.op-items .op-f-card { width: 11rem; margin-top: 0.25rem; }
+.op-items .op-f-month { width: 7.5rem; }
+.op-items .op-f-note { width: 9rem; }
+/* 항목명 — 보기에서 고르거나 직접 적거나 */
+.op-items .op-name { min-width: 11rem; }
+.op-items .op-f-name { width: 100%; }
+.op-items .op-f-name2 { width: 100%; margin-top: 0.25rem; }
+.op-items .op-empty { padding: 1.1rem; text-align: center; color: var(--text-muted); }
+.op-items .op-del { color: var(--danger); }
+
+.op-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.75rem; flex-wrap: wrap; margin-top: 0.7rem;
+}
+.op-sub { display: flex; gap: 1.1rem; flex-wrap: wrap; font-size: 0.82rem; color: var(--text-secondary); }
+.op-sub b { color: var(--text-primary); }
+.op-sub b.neg { color: var(--danger); }
+
+@media (max-width: 768px) {
+  .op-sub { gap: 0.5rem; }
+  .op-items { font-size: 0.78rem; }
+}
