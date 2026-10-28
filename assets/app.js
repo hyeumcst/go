@@ -7698,8 +7698,7 @@ const OP = { month: '', q: '', open: 0, tab: 'book' };
 
 /* 서버가 주는 탭 정의 — 항목명 보기 · 고를 수 있는 세율이 여기 들어 있다 */
 let OP_TABS_DEF = [];
-/* 업체 목록 (탭마다 다르다) · 펼쳐 놓은 과정의 항목들 */
-const OP_VENDORS = {};
+/* 펼쳐 놓은 과정의 항목들 */
 let OP_ITEMS = null;
 
 function opTabDef(key) {
@@ -7773,7 +7772,7 @@ async function renderOpCosts() {
     '<div class="table-container">',
     '  <table class="data-table op-table">',
     '    <thead><tr>',
-    '      <th>교육일</th><th>과정명</th><th>고객사</th>',
+    '      <th>과정명</th><th>고객사</th><th>교육일</th>',
     '      <th class="th-r">매출 운영비</th>',
     '      <th class="th-r">교재비</th><th class="th-r">문구류·간식</th><th class="th-r">기타</th>',
     '      <th class="th-r">합계</th><th></th>',
@@ -7806,9 +7805,10 @@ function opProjectRow(r) {
 
   const row = '<tr class="op-proj' + (open ? ' on' : '') + '"'
     + ' onclick="openOpProject(' + r.project_id + ')">'
-    + '<td class="op-date">' + esc(r.schedule || '-') + '</td>'
-    + '<td style="font-weight:600">' + esc(r.course_name || '-') + '</td>'
+    + '<td class="op-course">' + esc(r.course_name || '-') + '</td>'
     + '<td>' + esc(r.client_name || '-') + '</td>'
+    /* 차수가 여럿이면 「2026-10-05 외 2차수」 — 서버가 줄여서 준다 */
+    + '<td class="op-date">' + esc(r.schedule || '-') + '</td>'
     + '<td class="td-r muted">' + num(r.sale_operation) + '</td>'
     + '<td class="td-r">' + num(s.book) + '</td>'
     + '<td class="td-r">' + num(s.supply) + '</td>'
@@ -7842,15 +7842,21 @@ function opPanel(r) {
 
     + '<div class="op-hint">' + esc(def.hint || '') + '</div>'
 
-    + '<table class="op-items">'
-    + '<thead><tr>'
-    +   '<th>항목</th><th>업체</th><th class="th-r">금액</th><th>세율</th>'
-    +   '<th>견적서 월</th><th>비고</th><th></th>'
-    + '</tr></thead><tbody>'
+    /* 항목 보기 — 고르셔도 되고 직접 적으셔도 되게 한 칸에 담는다 */
+    + '<datalist id="op-names-' + OP.tab + '">'
+    +   (def.names || []).map(function (v) {
+          return '<option value="' + esc(v) + '"></option>';
+        }).join('')
+    + '</datalist>'
+
+    + '<div class="op-head">'
+    +   '<span class="c-name">항목</span><span class="c-vend">업체</span>'
+    +   '<span class="c-amt">금액</span><span class="c-tax">세율</span>'
+    +   '<span class="c-month">견적서 월</span><span class="c-del"></span>'
+    + '</div>'
     + (items.length === 0
-        ? '<tr><td colspan="7" class="op-empty">아직 적으신 것이 없습니다. 아래 [＋ 항목 추가]를 눌러주세요.</td></tr>'
+        ? '<div class="op-empty">아직 적으신 것이 없습니다. 아래 [＋ 항목 추가]를 눌러주세요.</div>'
         : items.map(opItemRow).join(''))
-    + '</tbody></table>'
 
     + '<div class="op-foot">'
     +   '<button class="btn btn-outline btn-sm" onclick="addOpItem()">＋ 항목 추가</button>'
@@ -7867,62 +7873,95 @@ function opPanel(r) {
     + '</div>';
 }
 
-/** 항목 한 줄 — 칸을 고치면 바로 저장되고 매입에도 반영된다 */
+/**
+ * 항목 한 줄.
+ *
+ * 비고를 뺀 나머지를 **한 줄**에 담고, 비고만 아래에 넓게 둔다.
+ * 비고 칸이 좁아 적기 어렵다고 하셨다. (대표님 지시 2026-10-28)
+ *
+ * 항목은 고르는 칸과 적는 칸을 따로 두지 않고 datalist 한 칸으로 합쳤다 —
+ * 보기에서 고르셔도 되고 직접 적으셔도 된다. 폭도 그만큼 줄었다.
+ */
 function opItemRow(it) {
-  const def = opTabDef(OP.tab);
   const id = it.id;
-  const names = def.names || [];
-  const vendors = (OP_VENDORS[OP.tab] || []).slice();
-  if (it.vendor && vendors.indexOf(it.vendor) < 0) vendors.push(it.vendor);
-
-  const pick = (cls, list, cur, placeholder) =>
-    '<select class="form-select ' + cls + '" onchange="saveOpItem(' + id + ', this)">'
-    + '<option value="">' + esc(placeholder) + '</option>'
-    + list.map(function (v) {
-        return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>'
-          + esc(v) + '</option>';
-      }).join('')
-    + (cur && list.indexOf(cur) < 0
-        ? '<option value="' + esc(cur) + '" selected>' + esc(cur) + '</option>' : '')
-    + '</select>';
-
+  const def = opTabDef(OP.tab);
   const card = String(it.tax_type || '').indexOf('카드') === 0;
+  const save = ' onchange="saveOpItem(' + id + ', this)"';
 
-  return '<tr data-op="' + id + '">'
-    /* 항목명 — 보기에서 고르거나 직접 적으실 수 있게 둘 다 둔다 */
-    /*
-     * 보기에 있는 이름이면 아래 칸은 비워 둔다. 같은 글자가 두 번 보이면
-     * 둘 다 적어야 하는 줄 아신다.
-     */
-    + '<td class="op-name">'
-    +   pick('op-f-name', names, it.name, '고르세요')
-    +   '<input type="text" class="form-input op-f-name2"'
-    +     ' value="' + esc(names.indexOf(it.name) >= 0 ? '' : (it.name || '')) + '"'
-    +     ' placeholder="직접 적기" onchange="saveOpItem(' + id + ', this)">'
-    + '</td>'
-    + '<td>' + pick('op-f-vendor', vendors, it.vendor, '업체 고르기') + '</td>'
-    + '<td class="td-r"><input type="text" class="form-input op-f-amount amt"'
-    +   ' value="' + (it.amount ? formatNumber(it.amount) : '') + '" placeholder="0"'
-    +   ' onchange="saveOpItem(' + id + ', this)"></td>'
-    + '<td>'
-    +   '<select class="form-select op-f-tax" onchange="saveOpItem(' + id + ', this)">'
-    +   (def.taxes || []).map(function (v) {
-          return '<option value="' + esc(v) + '"' + (v === it.tax_type ? ' selected' : '') + '>'
-            + esc(v) + '</option>';
-        }).join('')
+  return '<div class="op-item" data-op="' + id + '">'
+    + '<div class="op-line">'
+    /* 항목 — 보기에서 고르거나 직접 적거나 */
+    +   '<input type="text" class="form-input op-f-name c-name" list="op-names-' + OP.tab + '"'
+    +     ' value="' + esc(it.name || '') + '" placeholder="항목"' + save + '>'
+    /* 업체 — 협력사 자동완성. 없으면 그 자리에서 명부에 올린다 */
+    +   '<div class="autocomplete-wrapper c-vend">'
+    +     '<input type="text" class="form-input op-f-vendor"'
+    +       ' value="' + esc(it.vendor || '') + '" placeholder="업체 (적으면 찾아 드립니다)"'
+    +       ' oninput="opVendorSearch(this, ' + id + ')"' + save + '>'
+    +     '<div id="auto-op-' + id + '" class="autocomplete-list"></div>'
+    +   '</div>'
+    +   '<input type="text" class="form-input op-f-amount c-amt"'
+    +     ' value="' + (it.amount ? formatNumber(it.amount) : '') + '" placeholder="0"' + save + '>'
+    +   '<select class="form-select op-f-tax c-tax"' + save + '>'
+    +     (def.taxes || []).map(function (v) {
+            return '<option value="' + esc(v) + '"' + (v === it.tax_type ? ' selected' : '') + '>'
+              + esc(v) + '</option>';
+          }).join('')
     +   '</select>'
     +   (card
-        ? '<input type="text" class="form-input op-f-card" maxlength="4" placeholder="카드 끝 4자리"'
-          + ' value="' + esc(it.card_last4 || '') + '"'
-          + ' onchange="saveOpItem(' + id + ', this)">'
+        ? '<input type="text" class="form-input op-f-card c-card" maxlength="4"'
+          + ' placeholder="카드 4자리" value="' + esc(it.card_last4 || '') + '"' + save + '>'
         : '')
-    + '</td>'
-    + '<td>' + pick('op-f-month', opBillMonths(), it.bill_month, '없음') + '</td>'
-    + '<td><input type="text" class="form-input op-f-note" value="' + esc(it.note || '') + '"'
-    +   ' placeholder="비고" onchange="saveOpItem(' + id + ', this)"></td>'
-    + '<td><button class="btn btn-ghost btn-sm op-del" title="이 줄을 지웁니다 (매입에서도 사라집니다)"'
-    +   ' onclick="removeOpItem(' + id + ')">✖</button></td>'
-    + '</tr>';
+    +   '<select class="form-select op-f-month c-month"' + save + '>'
+    +     '<option value="">견적서 월 없음</option>'
+    +     opBillMonths().map(function (v) {
+            return '<option value="' + esc(v) + '"' + (v === it.bill_month ? ' selected' : '') + '>'
+              + esc(opMonthLabel(v)) + '</option>';
+          }).join('')
+    +     (it.bill_month && opBillMonths().indexOf(it.bill_month) < 0
+          ? '<option value="' + esc(it.bill_month) + '" selected>'
+            + esc(opMonthLabel(it.bill_month)) + '</option>' : '')
+    +   '</select>'
+    +   '<button class="btn btn-ghost btn-sm op-del c-del"'
+    +     ' title="이 줄을 지웁니다 (매입에서도 사라집니다)"'
+    +     ' onclick="removeOpItem(' + id + ')">✖</button>'
+    + '</div>'
+    /* 비고는 아래에 넓게 */
+    + '<div class="op-line2">'
+    +   '<input type="text" class="form-input op-f-note" value="' + esc(it.note || '') + '"'
+    +     ' placeholder="비고 — 길게 적으셔도 됩니다"' + save + '>'
+    + '</div>'
+    + '</div>';
+}
+
+/**
+ * 업체 자동완성 — 협력사 명부에서 찾는다.
+ *
+ * 없으면 「"○○" (신규 등록)」 이 뜨고, 누르시면 협력사 명부에 올라간다.
+ * 그러면 「협력사별 매입」 에도 그 업체로 잡힌다. (대표님 지시 2026-10-28)
+ */
+let opVendorTimer = null;
+function opVendorSearch(inputEl, id) {
+  clearTimeout(opVendorTimer);
+  opVendorTimer = setTimeout(function () { opVendorFind(inputEl, id); }, 200);
+}
+
+async function opVendorFind(inputEl, id) {
+  const listEl = document.getElementById('auto-op-' + id);
+  if (!listEl) return;
+  const q = inputEl.value.trim();
+  if (q.length < 1) { listEl.classList.remove('show'); return; }
+
+  let partners = [];
+  try { partners = (await API.searchPartners(q)).partners || []; } catch (e) { partners = []; }
+
+  renderAutoList(listEl, partners.slice(0, 12), q, async function (item) {
+    listEl.classList.remove('show');
+    const picked = await registerIfNew_(item, '협력사');
+    if (!picked) return;
+    inputEl.value = picked.name;
+    await saveOpItem(id, inputEl);
+  });
 }
 
 /**
@@ -7960,23 +7999,13 @@ async function openOpProject(projectId) {
 async function loadOpItems() {
   if (!OP.open) return;
   try {
-    const [items, v] = await Promise.all([
-      API.getOpItems(OP.open),
-      (OP_VENDORS[OP.tab] ? Promise.resolve({ vendors: OP_VENDORS[OP.tab] })
-                          : API.getOpVendors(OP.tab).catch(function () { return { vendors: [] }; }))
-    ]);
-    OP_ITEMS = items;
-    OP_VENDORS[OP.tab] = v.vendors || [];
+    OP_ITEMS = await API.getOpItems(OP.open);
     await renderOpCosts();
   } catch (e) { showToast(e.message, 'error'); }
 }
 
 async function setOpTab(kind) {
   OP.tab = kind;
-  if (!OP_VENDORS[kind]) {
-    try { OP_VENDORS[kind] = (await API.getOpVendors(kind)).vendors || []; }
-    catch (e) { OP_VENDORS[kind] = []; }
-  }
   await renderOpCosts();
 }
 
@@ -8005,27 +8034,18 @@ async function addOpItem() {
  * 한 칸만 보내면 서버가 나머지를 비운 것으로 보아 지워 버린다.
  */
 async function saveOpItem(id, el) {
-  const tr = el.closest('tr[data-op]');
-  if (!tr) return;
+  const box = el.closest('.op-item[data-op]');
+  if (!box) return;
   const val = (cls) => {
-    const f = tr.querySelector('.' + cls);
+    const f = box.querySelector('.' + cls);
     return f ? f.value : '';
   };
-
-  /*
-   * 항목명은 고르는 칸과 직접 적는 칸이 둘 다 있다.
-   * 방금 건드린 쪽을 쓰고, 그 밖의 칸을 고치셨으면 직접 적으신 것을
-   * 먼저 본다 (고르는 칸은 보기에 없는 이름을 담지 못한다).
-   */
-  let name;
-  if (el.classList.contains('op-f-name')) name = el.value;
-  else name = val('op-f-name2') || val('op-f-name');
 
   try {
     const r = await API.saveOpItem(OP.open, {
       id: id,
       kind: OP.tab,
-      name: name,
+      name: val('op-f-name'),
       vendor: val('op-f-vendor'),
       amount: parseNumber(val('op-f-amount')),
       tax_type: val('op-f-tax'),

@@ -267,7 +267,6 @@ const API = {
   /* ───── 운영비 관리 (관리자만) ───── */
   getOpCosts(params = {}) { return this.get('/op-costs' + this.qs(params)); },
   getOpItems(projectId) { return this.get('/op-costs/items/' + projectId); },
-  getOpVendors(kind) { return this.get('/op-costs/vendors' + this.qs({ kind: kind })); },
   saveOpItem(projectId, item) { return this.put('/op-costs/items/' + projectId, item); },
   deleteOpItem(expenseId) { return this.delete('/op-costs/item/' + expenseId); },
 

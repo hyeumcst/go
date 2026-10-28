@@ -2860,31 +2860,44 @@ tr.v-done td { background: var(--success-bg); }
 
 .op-hint { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.6rem; }
 
-/* 항목 표 */
-.op-items { width: 100%; border-collapse: collapse; font-size: 0.82rem; background: var(--bg-card);
-  border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
-.op-items th {
-  padding: 0.5rem 0.6rem; text-align: left; font-size: 0.72rem; font-weight: 600;
-  color: var(--text-muted); background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border); white-space: nowrap;
+/* ── 항목 한 줄 ──
+ *
+ * 비고를 뺀 나머지를 한 줄에 담고, 비고만 아래에 넓게 둡니다.
+ * 비고 칸이 좁아 적기 어렵다고 하셨습니다. (대표님 지시 2026-10-28)
+ *
+ * 칸 너비를 머리글(.op-head)과 줄(.op-line)에 똑같이 주어 세로로 맞춥니다.
+ */
+.op-head, .op-line { display: flex; align-items: center; gap: 0.4rem; }
+.op-head {
+  padding: 0 0.1rem 0.3rem; font-size: 0.72rem; font-weight: 600;
+  color: var(--text-muted); border-bottom: 1px solid var(--border);
 }
-.op-items td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
-.op-items tr:last-child td { border-bottom: none; }
-.op-items .th-r { text-align: right; }
-.op-items .td-r { text-align: right; }
-.op-items .form-input, .op-items .form-select { padding: 0.35rem 0.5rem; font-size: 0.8rem; min-width: 0; }
-.op-items .op-f-amount { width: 7rem; font-weight: 700; text-align: right; }
-.op-items .op-f-vendor { width: 10rem; }
-.op-items .op-f-tax { width: 11rem; }
-.op-items .op-f-card { width: 11rem; margin-top: 0.25rem; }
-.op-items .op-f-month { width: 7.5rem; }
-.op-items .op-f-note { width: 9rem; }
-/* 항목명 — 보기에서 고르거나 직접 적거나 */
-.op-items .op-name { min-width: 11rem; }
-.op-items .op-f-name { width: 100%; }
-.op-items .op-f-name2 { width: 100%; margin-top: 0.25rem; }
-.op-items .op-empty { padding: 1.1rem; text-align: center; color: var(--text-muted); }
-.op-items .op-del { color: var(--danger); }
+.op-item {
+  padding: 0.5rem 0.6rem; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  margin-top: 0.4rem;
+}
+.op-item .form-input, .op-item .form-select { padding: 0.35rem 0.5rem; font-size: 0.8rem; min-width: 0; }
+
+.op-head .c-name,  .op-line .c-name  { width: 8rem; flex: none; }
+.op-head .c-vend,  .op-line .c-vend  { flex: 1 1 10rem; min-width: 8rem; max-width: 20rem; }
+.op-head .c-amt,   .op-line .c-amt   { width: 7rem; flex: none; text-align: right; font-weight: 700; }
+.op-head .c-tax,   .op-line .c-tax   { width: 9.5rem; flex: none; }
+.op-line .c-card { width: 6.5rem; flex: none; }
+.op-head .c-month, .op-line .c-month { width: 8.5rem; flex: none; }
+.op-head .c-del,   .op-line .c-del   { width: 2.2rem; flex: none; text-align: center; }
+.op-head .c-amt { padding-right: 0.5rem; }
+
+.op-line2 { margin-top: 0.35rem; }
+.op-line2 .op-f-note { width: 100%; }
+.op-item .op-del { color: var(--danger); padding: 0.25rem 0.4rem; }
+.op-empty {
+  padding: 1.1rem; text-align: center; color: var(--text-muted);
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); margin-top: 0.4rem; font-size: 0.82rem;
+}
+/* 업체 자동완성 창이 줄 위로 떠야 한다 */
+.op-line .autocomplete-wrapper { position: relative; }
 
 .op-foot {
   display: flex; align-items: center; justify-content: space-between;
@@ -2896,5 +2909,6 @@ tr.v-done td { background: var(--success-bg); }
 
 @media (max-width: 768px) {
   .op-sub { gap: 0.5rem; }
-  .op-items { font-size: 0.78rem; }
+  .op-line { flex-wrap: wrap; }
+  .op-head { display: none; }
 }

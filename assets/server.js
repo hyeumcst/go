@@ -3171,6 +3171,22 @@ function merge_(a, b) {
  *   overlap 교육이 하루라도 있는 달 (여러 달에 중복 계상)
  */
 
+/**
+ * 협력사 매입을 어느 이름으로 묶을까.
+ *
+ * 과정등록에서 적은 줄은 「강사·협력사명」 칸에 업체 이름이 들어간다.
+ * 운영비 관리에서 적은 줄은 그 칸이 항목명(교재비·문구류·버스비)이고
+ * 업체는 「소속」 칸에 들어간다 — 그래야 과정등록 매입을 열었을 때
+ * 무엇을 산 줄인지 읽히기 때문이다.
+ *
+ * 그 줄만 소속으로 묶어, 「협력사별 매입」 에서 업체 이름으로 잡히게 한다.
+ * (대표님 지시 2026-10-28)
+ */
+function partnerKeyOf_(e) {
+  if (e.op_kind && String(e.affiliation || '').trim()) return String(e.affiliation).trim();
+  return orElse_(e.name, '(미지정)');
+}
+
 /** 과정의 첫 교육일 (basis=start 에서 쓴다) */
 function firstStart_(p) {
   var rs = schedOf(p);
@@ -3379,9 +3395,9 @@ function analyticsGet(u, q) {
     }).sort(descBy_('amount'));
 
   /** 사람·업체 단위 매입 집계 (강사 · 협력사 공통) */
-  var byPerson = function (rows) {
+  var byPerson = function (rows, keyFn) {
     return groupBy_(rows,
-      function (e) { return orElse_(e.name, '(미지정)'); },
+      keyFn || function (e) { return orElse_(e.name, '(미지정)'); },
       function (name) {
         return {
           name: name, affiliation: '', code: 0, count: 0, project_count: 0,
@@ -3409,7 +3425,7 @@ function analyticsGet(u, q) {
   var byInstructor = byPerson(lectures.filter(taxPass));
   var byPartner = byPerson(expensesIn.filter(function (e) {
     return e.category === '협력사(운영비)' && taxPass(e);
-  }));
+  }), partnerKeyOf_);
 
   /* ── 법인카드별 (카드 뒤 4자리) ── */
   var byCard = groupBy_(
@@ -3586,9 +3602,11 @@ function analyticsDetail(u, q) {
   };
 
   if (EXP_KIND[q.kind]) {
+    /* 묶는 이름은 목록(byPartner)과 **같은 규칙**이어야 한다 — 다르면 펼쳐도 비어 보인다 */
     var nameOf = q.kind === 'card'
       ? function (e) { return orElse_(e.card_last4, '(미지정)'); }
-      : function (e) { return orElse_(e.name, '(미지정)'); };
+      : (q.kind === 'partner' ? partnerKeyOf_
+                              : function (e) { return orElse_(e.name, '(미지정)'); });
 
     var rows = Db.all('project_expenses').filter(function (e) {
       if (e.category !== EXP_KIND[q.kind]) return false;
@@ -4448,26 +4466,26 @@ function usersUpdate(u, id, b) {
  *   taxes     고를 수 있는 세율. 교재비는 카드가 없다 — 100% 세금계산서라고 하셨다
  *   word      업체 목록을 추릴 낱말 (교재비만 쓴다)
  */
+/* 세율 — 세 탭 모두 같다 (대표님 지시 2026-10-28) */
+var OP_TAXES = ['세금계산서(과세)', '세금계산서(면세)', '카드(과세)'];
+
 var OP_TABS = [
   {
     key: 'book', label: '교재비',
     names: ['교재비', '워크북', '부교재', '인쇄비'],
-    taxes: ['세금계산서(과세)', '세금계산서(면세)'],
-    word: '교재',
+    taxes: OP_TAXES,
     hint: '인쇄업체 견적서가 월말에 한 장으로 오므로, 견적서 월을 적어 두면 달마다 맞춰 볼 수 있습니다.'
   },
   {
     key: 'supply', label: '문구류 및 간식비',
     names: ['문구류', '간식비', '음료', '다과'],
-    taxes: ['세금계산서(과세)', '세금계산서(면세)', '카드(과세)'],
-    word: null,
+    taxes: OP_TAXES,
     hint: '세금계산서로 받으신 것과 카드로 사신 것을 한 줄씩 적으세요.'
   },
   {
     key: 'etc', label: '기타',
     names: ['버스비', '현수막', '주차비', '식대', '기타'],
-    taxes: ['세금계산서(과세)', '세금계산서(면세)', '카드(과세)'],
-    word: null,
+    taxes: OP_TAXES,
     hint: '버스비·현수막 등 위 두 가지가 아닌 운영비를 적으세요. 마땅한 이름이 없으면 기타로 두시면 됩니다.'
   }
 ];
@@ -4543,6 +4561,23 @@ function opMonths_() {
     });
   });
   return Object.keys(seen).sort().reverse();
+}
+
+/**
+ * 교육일을 짧게.
+ *
+ * 차수가 여럿이면 날짜를 다 적어 봐야 줄만 길어지고 읽히지 않는다.
+ * 첫 차수만 적고 나머지는 셈해서 붙인다. (대표님 지시 2026-10-28)
+ *
+ *   한 번        2026-10-05
+ *   이어진 날들   2026-10-12 ~ 2026-10-14
+ *   세 차수      2026-10-05 외 2차수
+ */
+function opScheduleText_(p) {
+  var rs = schedOf(p).filter(function (r) { return r && r.s; });
+  if (!rs.length) return '';
+  var first = rs[0].s + ((rs[0].e && rs[0].e !== rs[0].s) ? ' ~ ' + rs[0].e : '');
+  return rs.length > 1 ? (first + ' 외 ' + (rs.length - 1) + '차수') : first;
 }
 
 /* ───────── 매입 줄을 읽고 쓴다 ───────── */
@@ -4650,7 +4685,7 @@ function opCostsList(u, q) {
       project_id: p.id,
       course_name: p.course_name || '',
       client_name: p.client_id ? (clientName[p.client_id] || '') : '',
-      schedule: datesToText_(p),
+      schedule: opScheduleText_(p),
       start: firstStart_(p) || '',
       sums: opSumsOf_(mine),
       count: mine.length,
@@ -4786,34 +4821,6 @@ function opCostsDelete(u, expenseId) {
   Db.remove('project_expenses', id);
   opRetotal_(pid);
   return { message: '지웠습니다.', detail: opCostsItems(u, pid) };
-}
-
-/**
- * 업체 목록.
- *
- * 교재비는 협력사 가운데 「교재」 가 붙은 곳만 추려 드린다 — 인쇄업체가
- * 몇 곳뿐이라 그 편이 빠르다. 나머지 탭은 협력사 전부를 드린다.
- * 어느 쪽이든 이미 적어 두신 업체는 목록에서 빠져도 남긴다.
- */
-function opVendors(u, kind) {
-  requireAdmin(u);
-  var tab = opTab_(String(kind || '')) || OP_TABS[0];
-
-  var names = Db.where('partners', function (p) {
-    if (!p.is_active) return false;
-    if (!tab.word) return true;
-    return [p.name, p.category, p.note].some(function (v) {
-      return String(v || '').indexOf(tab.word) >= 0;
-    });
-  }).sort(byName_).map(function (p) { return p.name; });
-
-  Db.where('project_expenses', function (r) { return r.op_kind === tab.key; })
-    .forEach(function (r) {
-      var v = String(r.affiliation || '').trim();
-      if (v && names.indexOf(v) < 0) names.push(v);
-    });
-
-  return { vendors: names, kind: tab.key };
 }
 
 /* ───────── 옛 교재비 자료 옮기기 ───────── */
@@ -7054,7 +7061,7 @@ function route_(u, method, path, b, q) {
   /* ───── 엑셀로 한꺼번에 고치기 ───── */
   /* ───── 운영비 관리 — 교재비·문구류/간식비·기타 (관리자만) ───── */
   if (head === 'op-costs') {
-    if (GET && a === 'vendors') return opVendors(u, q && q.kind);
+    /* 업체는 협력사 자동완성(/partners/search)을 그대로 쓴다 — 따로 둘 까닭이 없다 */
     if (GET && a === 'items' && c) return opCostsItems(u, c);
     if (GET && !a) return opCostsList(u, q);
     if (PUT && a === 'items' && c) return opCostsSave(u, c, b);
