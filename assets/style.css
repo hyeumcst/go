@@ -1983,18 +1983,31 @@ code {
 }
 .rline:hover .rtool, .rtool:focus-visible { opacity: 1; }
 .rtool:hover { background: var(--accent-glow); color: var(--accent-hover); border-color: var(--accent-hover); }
+/* 눌러 둔 도구(수기 등)도 그 구역 색으로 — 줄만 바꾸면 단추가 혼자 논다 */
 .rtool.on {
   opacity: 1;
-  background: var(--warning-bg); color: var(--warning);
-  border-color: var(--warning);
+  background: var(--sec-bg, var(--warning-bg));
+  color: var(--sec, var(--warning));
+  border-color: var(--sec, var(--warning));
 }
 .rtool.del { padding: 0.35rem 0.45rem; }
 .rtool.del:hover { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
 .rtool[disabled] { opacity: 0.2; cursor: default; }
 .rtool[disabled]:hover { background: var(--bg-input); color: var(--text-muted); border-color: var(--border); }
 
-/* 수기작성 중인 줄 */
-.rline.manual { background: var(--warning-bg); border-radius: var(--radius-sm); padding-left: 0.5rem; padding-right: 0.5rem; }
+/*
+ * 수기작성 중인 줄.
+ *
+ * 전에는 어느 구역이든 주황색이었다. 매입(주황)에서는 맞았지만
+ * 매출 정보(청록)에서는 그 줄만 혼자 주황이라 눈에 걸렸다.
+ * 그래서 **그 구역 색**(--sec-bg)을 따른다. (대표님 지시 2026-10-28)
+ *   과정 기본정보 파랑 · 매출 정보 청록 · 세금계산서 보라 · 매입 주황
+ */
+.rline.manual {
+  background: var(--sec-bg, var(--warning-bg));
+  border-radius: var(--radius-sm);
+  padding-left: 0.5rem; padding-right: 0.5rem;
+}
 
 /* 부가세 별도/포함 토글 (계산서 금액칸 안) */
 .rline .basis { display: flex; gap: 0.15rem; margin-top: 0.25rem; }
