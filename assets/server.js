@@ -5251,15 +5251,17 @@ function bulkSheets() {
      * 과정과 그에 딸린 매출·매입·계산서를 한 시트에 모은다.
      * 자세한 모양은 BulkGroup.gs 에 있다.
      */
-    /* 과정 하나당 한 줄 — 전체를 훑어볼 때 (보기 전용) */
-    { key: '_summary', name: '과정 요약', edit: false, summary: true, cols: summaryCols() },
-    { key: '_group', name: GROUP_SHEET, edit: true, group: true, cols: groupCols() },
     /*
-     * 새 과정 하나를 한 줄로 넣는 시트. 늘 비어 있다.
-     * 「과정」 시트는 칸이 47개라 새로 넣기에는 번거롭다.
+     * 차례는 「자주 쓰는 것부터」 — 엑셀을 열면 맨 왼쪽 시트가 먼저 보인다.
      * (대표님 지시 2026-10-28)
+     *
+     *   ① 신규 과정 추가 — 새로 넣을 때. 늘 비어 있고 칸이 13개뿐이다.
+     *   ② 과정          — 고칠 때. 칸이 47개로 자세하다.
+     *   ③ 과정 요약      — 훑어볼 때 (보기 전용)
      */
     { key: '_newproj', name: NEW_SHEET, edit: true, newproj: true, cols: newProjCols() },
+    { key: '_group', name: GROUP_SHEET, edit: true, group: true, cols: groupCols() },
+    { key: '_summary', name: '과정 요약', edit: false, summary: true, cols: summaryCols() },
     {
       key: 'clients', name: '고객사', edit: true,
       cols: [['번호', 'id', 'ref'], ['고객사명', 'name', 't'], ['사용', 'is_active', 'n']]
@@ -5604,7 +5606,20 @@ function bulkDiff_(sheetsIn) {
         return;
       }
       var gd = groupDiff_(g, ctx);
-      Object.keys(gd.plan).forEach(function (t) { plan[t] = gd.plan[t]; });
+      /*
+       * 덮어쓰지 말고 더한다.
+       *
+       * 「신규 과정 추가」 시트도 같은 표(projects·project_sales·
+       * project_expenses)에 줄을 넣는다. 덮어쓰면 시트 차례에 따라
+       * 한쪽이 통째로 사라진다 — 차례를 바꾸는 순간 조용히 깨진다.
+       * (2026-10-28, 시트 차례를 바꾸다 드러났다)
+       */
+      Object.keys(gd.plan).forEach(function (t) {
+        if (!plan[t]) plan[t] = { add: [], edit: [], del: [] };
+        ['add', 'edit', 'del'].forEach(function (k) {
+          (gd.plan[t][k] || []).forEach(function (x) { plan[t][k].push(x); });
+        });
+      });
       gd.problems.forEach(function (x) { problems.push(x); });
 
       var LABEL = {
