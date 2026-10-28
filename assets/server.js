@@ -848,11 +848,30 @@ function overlapsPeriod(row, startDate, endDate) {
   return false;
 }
 
-/** 과정이 걸쳐 있는 달들 (YYYY-MM) */
+/**
+ * 과정이 걸쳐 있는 달들 (YYYY-MM).
+ *
+ * 시작한 달만 세면 안 된다 — 10월 30일에 시작해 11월 2일에 끝나는
+ * 교육은 10월·11월 어느 쪽으로 찾아도 나와야 하는데, 시작한 달만
+ * 세어 두면 거르개에 11월이 아예 안 나타난다. (대표님 지시 2026-10-28)
+ */
 function monthsOf(row) {
   var out = {};
   schedOf(row).forEach(function (r) {
-    if (r && r.s) out[r.s.slice(0, 7)] = true;
+    var s = String((r && r.s) || '');
+    if (!/^\d{4}-\d{2}/.test(s)) return;
+    var e = String((r && r.e) || s);
+    var cur = s.slice(0, 7);
+    var end = /^\d{4}-\d{2}/.test(e) ? e.slice(0, 7) : cur;
+    if (end < cur) end = cur;
+    /* 한 해를 넘겨 길게 끌리는 일은 없지만, 돌다 멈추지 않도록 24달로 막아 둔다 */
+    for (var i = 0; i < 24; i++) {
+      out[cur] = true;
+      if (cur >= end) break;
+      var y = Number(cur.slice(0, 4)), m = Number(cur.slice(5, 7)) + 1;
+      if (m > 12) { y++; m = 1; }
+      cur = y + '-' + (m < 10 ? '0' + m : String(m));
+    }
   });
   return Object.keys(out);
 }
@@ -2326,11 +2345,27 @@ function projectsList(u, q) {
    * 「매입이 하나도 없는 과정만」 보기.
    * 대시보드의 경고를 눌렀을 때 어느 과정인지 바로 찾아가기 위한 것이다.
    */
-  var noExpense = null;
+  var noExpense = null, checkedCount = 0;
   if (q.missing_expense) {
+    /*
+     * 「확인함」을 눌러 둔 건은 목록에서 뺀다.
+     *
+     * 전에는 줄이 그대로 남고 단추 모양만 바뀌었다. 그래서 눌러도
+     * 아무것도 안 없어졌고, 누를 까닭이 없어졌다. (대표님 지시 2026-10-28)
+     *
+     * 다만 아주 감추지는 않는다 — 잘못 누르셨을 때 되돌릴 길이
+     * 없으면 안 된다. 안내줄의 「확인한 N건도 보기」로 다시 불러낸다.
+     */
+    var checkedOff = isAdmin(u) ? checkedMap_('missing_expense') : {};
+    var keepChecked = !!q.include_checked;
     noExpense = {};
     Db.all('projects').forEach(function (p) {
-      if ((p.total_sales || 0) > 0 && (p.total_expenses || 0) === 0) noExpense[p.id] = true;
+      if (!((p.total_sales || 0) > 0 && (p.total_expenses || 0) === 0)) return;
+      if (checkedOff[p.id]) {
+        checkedCount++;
+        if (!keepChecked) return;
+      }
+      noExpense[p.id] = true;
     });
   }
 
@@ -2446,7 +2481,9 @@ function projectsList(u, q) {
     projects: out,
     totals: {
       count: agg.total, sales: agg.sales, vat: agg.vat, expenses: agg.expenses,
-      profit: agg.sales - agg.expenses, unpaid: unpaid
+      profit: agg.sales - agg.expenses, unpaid: unpaid,
+      /* 확인해 둔 건이 몇 건인지 — 안내줄에서 다시 불러낼 때 쓴다 */
+      checked_count: checkedCount
     },
     pagination: {
       total: agg.total, page: page, limit: limit,
@@ -4540,25 +4577,13 @@ function opInMonth_(p, month) {
  * 고를 수 있는 달 — 교육일정이 있는 달만.
  *
  * 10월 30일에 시작해 11월 2일에 끝나는 교육은 **두 달 모두**에 나와야 한다.
- * (monthsOf 는 시작하는 달만 주므로 여기서 끝나는 달까지 훑는다)
+ * (monthsOf 가 지나는 달을 모두 돌려준다 — 과정 목록도 같은 셈을 쓴다)
  */
 function opMonths_() {
+  /* 달 셈은 과정 목록과 한 곳에서 한다 (Calc.gs 의 monthsOf) */
   var seen = {};
   Db.all('projects').forEach(function (p) {
-    schedOf(p).forEach(function (r) {
-      var s = String((r && r.s) || ''), e = String((r && r.e) || r && r.s || '');
-      if (!/^\d{4}-\d{2}/.test(s)) return;
-      var cur = s.slice(0, 7);
-      var end = /^\d{4}-\d{2}/.test(e) ? e.slice(0, 7) : cur;
-      /* 한 해를 넘겨 길게 끌리는 일은 없지만, 돌다 멈추지 않도록 24달로 막아 둔다 */
-      for (var n = 0; n < 24; n++) {
-        seen[cur] = true;
-        if (cur >= end) break;
-        var y = Number(cur.slice(0, 4)), m = Number(cur.slice(5, 7)) + 1;
-        if (m > 12) { y++; m = 1; }
-        cur = y + '-' + (m < 10 ? '0' + m : String(m));
-      }
-    });
+    monthsOf(p).forEach(function (m) { seen[m] = true; });
   });
   return Object.keys(seen).sort().reverse();
 }
@@ -6958,10 +6983,15 @@ function route_(u, method, path, b, q) {
     if (GET && !a) return projectsList(u, q);
     if (GET && a) return projectsGet(u, a);
     if (POST && !a) return projectsCreate(u, b);
+    /*
+     * 「확인함」을 과정 수정보다 **먼저** 봐야 한다.
+     * 아래 'PUT && a' 가 먼저 걸리면 /projects/12/expense-check 가
+     * 과정 수정으로 빨려 들어가, 누르면 「확인함으로 표시했습니다」 라고
+     * 해 놓고 실제로는 아무것도 적히지 않는다. (대표님 지시 2026-10-28)
+     */
+    if (PUT && a && c === 'expense-check') return projectExpenseCheck(u, a, b);
     if (PUT && a) return projectsUpdate(u, a, b);
     if (DEL && a) return projectsDelete(u, a);
-    // 매입 누락 경고를 한 건씩 「확인함」으로 — 관리자만
-    if (PUT && a && c === 'expense-check') return projectExpenseCheck(u, a, b);
   }
 
   /* ───── 교육진행 (실제로 현장에 다녀온 날) ───── */

@@ -579,7 +579,7 @@ function prefetchRoute(route) {
       return API.getProjects({
         q: LIST.q, month: LIST.month, manager: LIST.manager,
         type: LIST.type, sort: LIST.sort, company: LIST.company,
-        missing_expense: LIST.missing_expense
+        missing_expense: LIST.missing_expense, include_checked: LIST.include_checked
       });
     },
     tax: function () { return API.getInvoices(TAX); }
@@ -1809,6 +1809,12 @@ const LIST = {
   q: '', month: '', manager: '', type: '', sort: 'date_desc',
   // 매입이 하나도 없는 과정만 보기 (대시보드 경고에서 넘어올 때)
   missing_expense: '',
+  /*
+   * 확인함을 눌러 둔 건까지 함께 볼지.
+   * 보통은 뺀다 — 누르면 바로 빠져야 누른 보람이 있다.
+   * 되돌리시려면 안내줄의 「확인한 N건도 보기」로 다시 불러낸다.
+   */
+  include_checked: '',
   months: [], managers: []
 };
 
@@ -1818,6 +1824,7 @@ const LIST = {
  */
 function showMissingExpense() {
   LIST.missing_expense = '1';
+  LIST.include_checked = '';
   // 다른 조건이 걸려 있으면 안 보일 수 있으니 함께 푼다
   LIST.q = '';
   LIST.month = '';
@@ -1834,6 +1841,13 @@ function showMissingExpense() {
 /** 그 거르개를 푼다 */
 function clearMissingExpense() {
   LIST.missing_expense = '';
+  LIST.include_checked = '';
+  renderProjectList();
+}
+
+/** 확인해 둔 건을 함께 볼지 / 다시 숨길지 (되돌리시려면 함께 보셔야 한다) */
+function toggleCheckedRows() {
+  LIST.include_checked = LIST.include_checked ? '' : '1';
   renderProjectList();
 }
 
@@ -1854,7 +1868,7 @@ async function renderProjectList() {
     data = await API.getProjects({
       q: LIST.q, month: LIST.month, manager: LIST.manager,
       type: LIST.type, sort: LIST.sort, company: LIST.company,
-      missing_expense: LIST.missing_expense
+      missing_expense: LIST.missing_expense, include_checked: LIST.include_checked
     });
   } catch (e) { showToast(e.message, 'error'); return; }
 
@@ -1887,7 +1901,20 @@ async function renderProjectList() {
         + '<span class="ico">' + icon('alert', 18) + '</span>'
         + '<span class="txt"><b>매입이 하나도 없는 과정</b>만 보고 있습니다.'
         + (isAdminView()
-            ? ' 살펴보고 문제가 없으면 오른쪽 <b>확인함</b>을 눌러주세요 — 그 건은 다음부터 경고에 안 나옵니다.'
+            ? ' 살펴보고 문제가 없으면 오른쪽 <b>확인함</b>을 눌러주세요 — 그 건은 이 목록에서 바로 빠집니다.'
+            : '')
+        /*
+         * 확인해 둔 건을 다시 불러내는 길.
+         * 잘못 누르셨을 때 되돌릴 데가 없으면 안 되므로 꼭 있어야 한다.
+         * 안내줄 전체가 「전체 보기」로 이어져 있으므로 번짐을 멈춘다.
+         */
+        + ((isAdminView() && (t.checked_count || 0) > 0)
+            ? ' <button type="button" class="warn-link"'
+              + ' onclick="event.stopPropagation(); toggleCheckedRows()">'
+              + (LIST.include_checked
+                  ? '확인한 ' + formatNumber(t.checked_count) + '건 다시 숨기기'
+                  : '확인한 ' + formatNumber(t.checked_count) + '건도 보기')
+              + '</button>'
             : '')
         + '</span>'
         + '<span class="go">✕ 전체 보기</span></div>'
@@ -1932,11 +1959,11 @@ async function renderProjectList() {
     // ── 합계 ──
     '<div class="list-total">',
     '  <span class="cnt"><b>' + formatNumber(t.count || 0) + '</b>건</span>',
-    '  <span class="it"><i>총 매출</i><b class="sales">' + formatNumber(t.sales || 0) + '</b></span>',
+    '  <span class="it"><i>총 매출 <em>(부가세 별도)</em></i><b class="sales">' + formatNumber(t.sales || 0) + '</b></span>',
     '  <span class="it"><i>총 매입</i><b class="exp">' + formatNumber(t.expenses || 0) + '</b></span>',
     '  <span class="it"><i>이익</i><b class="profit">' + formatNumber(t.profit || 0) + '</b>'
     + (t.sales ? '<em>(' + ((t.profit / t.sales) * 100).toFixed(1) + '%)</em>' : '') + '</span>',
-    '  <span class="it"><i>미수금</i><b class="unpaid">' + formatNumber(t.unpaid || 0) + '</b></span>',
+    '  <span class="it"><i>미수금 <em>(부가세 포함)</em></i><b class="unpaid">' + formatNumber(t.unpaid || 0) + '</b></span>',
     '</div>',
 
     // ── 표 ──
@@ -1947,8 +1974,9 @@ async function renderProjectList() {
         '  <table class="data-table">',
         '    <thead><tr>',
         '      <th class="th-mid">회사</th><th>고객사</th><th>구분</th><th>과정명</th><th>교육일정</th><th>담당자</th>',
-        '      <th class="th-num">총 매출</th><th class="th-num">총 매입</th><th class="th-num">이익</th>',
-        '      <th>발행일</th><th class="th-num">미수금</th>'
+        '      <th class="th-num">총 매출<span class="th-sub">(부가세 별도)</span></th>'
+      + '<th class="th-num">총 매입</th><th class="th-num">이익</th>',
+        '      <th>발행일</th><th class="th-num">미수금<span class="th-sub">(부가세 포함)</span></th>'
       + (showCheck ? '<th class="th-mid">확인</th>' : ''),
         '    </tr></thead><tbody>',
         data.projects.map(function (p) {
