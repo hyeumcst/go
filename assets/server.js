@@ -599,8 +599,18 @@ const Db = (function () {
     return row;
   }
 
+  /*
+   * 저장할 것을 모아 둔다.
+   *
+   * ★ 표에 정해진 칸만 내보낸다. 셈하다 행에 잠깐 붙여 둔 것(__sched
+   *   같은)이 그대로 저장되면 자료에 군더더기가 쌓이고, 다음에 읽을 때
+   *   그 군더더기를 진짜 칸으로 착각하게 된다. (2026-10-28)
+   */
   function queue(op, table, id, data) {
-    PENDING.push({ op: op, table: table, id: id, data: data });
+    PENDING.push({
+      op: op, table: table, id: id,
+      data: (op === 'delete' || !data) ? data : shape(table, data)
+    });
   }
 
   function put(table, row) {
@@ -823,12 +833,26 @@ function parseSchedule(row) {
  * 행의 일정을 구간 배열로 돌려준다 — 한 번 푼 결과를 그 행에 붙여 둔다.
  *
  * 월별 집계는 12개월 × 과정수 만큼 일정을 들여다보기 때문에,
- * 매번 JSON 을 다시 푸는 것이 아깝다. Db 가 행을 실행당 한 번만 읽어오므로
- * 여기 붙여 둔 값도 요청이 끝나면 함께 사라진다(오래된 값이 남을 일이 없다).
+ * 매번 JSON 을 다시 푸는 것이 아깝다.
+ *
+ * ★ 그런데 **무엇을 보고 풀었는지**도 함께 적어 둬야 한다.
+ *
+ *   앱스스크립트에서는 행을 요청마다 새로 읽어왔으므로 붙여 둔 값도
+ *   요청이 끝나면 사라졌다. 지금은 브라우저가 파이어베이스 자료를
+ *   **화면을 열어 둔 내내** 들고 있다. 저장하면 그 행의 schedule_dates
+ *   만 바뀌므로, 적어 둔 결과를 그대로 믿으면 **고치기 전 일정**으로
+ *   거르게 된다.
+ *
+ *   실제로 그랬다 — 차수를 다섯 개 넣고 저장했더니 목록에는 그 날짜가
+ *   보이는데(그쪽은 다시 푼다) 달로 거르면 하나도 안 나왔다.
+ *   새로고침하면 그제야 나왔다. (대표님 지시 2026-10-28)
  */
 function schedOf(row) {
-  if (!row.__sched) {
-    row.__sched = normalizeSchedule(row.schedule_dates, row.schedule_type);
+  var src = row.schedule_dates;
+  if (row.__schedSrc !== src || row.__schedType !== row.schedule_type) {
+    row.__schedSrc = src;
+    row.__schedType = row.schedule_type;
+    row.__sched = normalizeSchedule(src, row.schedule_type);
   }
   return row.__sched;
 }
@@ -2742,7 +2766,8 @@ function projectsDelete(u, id) {
 function shallow_(o) {
   var out = {};
   for (var k in o) {
-    if (k === '_r' || k === '__sched') continue;
+    /* _r 은 시트 줄 번호, __ 로 시작하는 것은 셈하다 잠깐 붙여 둔 것이다 */
+    if (k === '_r' || k.indexOf('__') === 0) continue;
     out[k] = o[k];
   }
   return out;
