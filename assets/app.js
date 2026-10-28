@@ -477,11 +477,14 @@ function initLogin() {
  *   과정 등록 · 대시보드 · 매출·매입 분석 · 과정(매출/매입) 목록
  *   그리고 설정은 「자기 비밀번호 변경」만
  *
+ * 2026-10-28 에 「매출·매입 분석」을 뺐다 — 직원에게는 이익을 안 보인다.
+ * 메뉴만 감추는 것이 아니라 길 자체를 막는다(여기서 빼면 navigate 도 막힌다).
+ *
  * ⚠️ 메뉴를 감추는 것은 「보기 편하게」일 뿐이고, 실제 차단은 서버가 한다.
  *    (Auth.gs 의 requireAdmin — 직원은 과정 삭제·명단 등록·입금 체크·
  *     정산자료·계정 관리를 아예 할 수 없다)
  */
-const STAFF_ROUTES = ['project-form', 'dashboard', 'analytics', 'visits', 'projects', 'tax', 'password'];
+const STAFF_ROUTES = ['project-form', 'dashboard', 'visits', 'projects', 'tax', 'password'];
 
 /**
  * 이 사람에게 이 메뉴를 보여줄지.
@@ -1239,8 +1242,11 @@ async function renderDashboard() {
             })())),
       card('c-red', 'expense', '총 매입', formatNumber(S.total_expenses) + '<em>원</em>',
         S.total_sales ? '매출 대비 ' + ((S.total_expenses / S.total_sales) * 100).toFixed(1) + '%' : ''),
-      card('c-green', 'profit', '이익', formatNumber(S.profit) + '<em>원</em>',
-        S.total_sales ? '이익률 ' + S.margin.toFixed(1) + '%' : ''),
+      /* 이익은 관리자 화면에서만 (대표님 지시 2026-10-28) */
+      (isAdminView()
+        ? card('c-green', 'profit', '이익', formatNumber(S.profit) + '<em>원</em>',
+            S.total_sales ? '이익률 ' + S.margin.toFixed(1) + '%' : '')
+        : ''),
       card('c-purple', 'receivable', '미수금 <span>부가세 별도</span>', formatNumber(data.receivable.supply) + '<em>원</em>',
         '부가세 포함 ' + formatNumber(data.receivable.amount) + '원 · ' + data.receivable.count + '장'),
       /*
@@ -1303,8 +1309,10 @@ async function renderDashboard() {
             +   '<span><i>과정</i><b>' + formatNumber(m.count) + '건</b></span>'
             +   '<span><i>매출</i><b class="s">' + formatNumber(m.sales) + '</b></span>'
             +   '<span><i>매입</i><b class="e">' + formatNumber(m.expenses) + '</b></span>'
-            +   '<span><i>이익</i><b class="p">' + formatNumber(m.profit) + '</b>'
-            +     '<em>' + m.margin.toFixed(1) + '%</em></span>'
+            +   (isAdminView()
+                  ? '<span><i>이익</i><b class="p">' + formatNumber(m.profit) + '</b>'
+                    + '<em>' + m.margin.toFixed(1) + '%</em></span>'
+                  : '')
             + '</div></div>';
         }).join('') + '</div>';
       })()),
@@ -1316,7 +1324,8 @@ async function renderDashboard() {
             + '<span class="nm' + (DASH.manager === m.manager ? ' on' : '') + '">' + esc(m.manager) + '</span>'
             + '<span class="ct">' + m.count + '건</span>'
             + '<span class="vl">' + formatNumber(m.sales) + '</span>'
-            + '<span class="pf">' + formatNumber(pf) + '</span>'
+            /* 이익은 관리자 화면에서만 */
+            + (isAdminView() ? '<span class="pf">' + formatNumber(pf) + '</span>' : '')
             + '</div>';
         }).join('') + '</div>'),
       '  </div>',
@@ -1614,7 +1623,7 @@ function visitRow(r) {
     + '<td>' + esc(r.client_name || '-') + '</td>'
     + '<td style="font-weight:600">' + esc(r.course_name || '-') + '</td>'
     + '<td class="c-mid" style="font-size:0.82rem; color:var(--text-secondary)">'
-    +   esc(schedText(r.plan_dates)) + (r.plan_days ? ' <span class="v-days">' + r.plan_days + '일</span>' : '') + '</td>'
+    +   esc(schedText(r.plan_dates, r.plan_days)) + '</td>'
     + '<td class="c-mid" style="font-size:0.82rem">'
     +   (went
         ? '<b>' + esc(r.visit_type) + '</b> ' + esc(schedText(r.visit_dates))
@@ -1638,11 +1647,24 @@ function visitRow(r) {
     + '</div></td></tr>';
 }
 
-/** 일정 배열을 사람이 읽는 글로 */
-function schedText(rows) {
+/**
+ * 일정 배열을 사람이 읽는 글로.
+ *
+ * 차수가 많으면 날짜를 다 적어 봐야 줄만 길어지고 읽히지 않는다.
+ * 첫 차수만 적고 나머지는 셈해서 붙인다. (대표님 지시 2026-10-28)
+ *
+ *   한 번        2026-06-08
+ *   이어진 날들   2026-07-08~2026-07-10
+ *   여러 차수     2026-06-08 외 4차수 (9일)
+ *
+ * @param days 함께 보여줄 날수 (안 넘기면 안 적는다 — 옆 칸에 이미 있을 때)
+ */
+function schedText(rows, days) {
   const list = (Array.isArray(rows) ? rows : []).filter(function (r) { return r && r.s; });
   if (!list.length) return '-';
-  return list.map(function (r) { return r.s === r.e || !r.e ? r.s : r.s + '~' + r.e; }).join(', ');
+  const one = (r) => (r.s === r.e || !r.e) ? r.s : r.s + '~' + r.e;
+  const head = one(list[0]) + (list.length > 1 ? ' 외 ' + (list.length - 1) + '차수' : '');
+  return days ? head + ' (' + days + '일)' : head;
 }
 
 function setVisitFilter(key, v) { VISIT[key] = v; renderVisits(); }
@@ -1953,6 +1975,8 @@ async function renderProjectList() {
     [
       ['recent', '최근 등록순'], ['oldest', '오래된 등록순'],
       ['date_desc', '교육일 내림차순'], ['date_asc', '교육일 오름차순'],
+      /* 세금계산서를 끊은 날 기준 (대표님 지시 2026-10-28) */
+      ['issue_desc', '발행일 내림차순'], ['issue_asc', '발행일 오름차순'],
       ['sales_desc', '매출 높은순'], ['sales_asc', '매출 낮은순'],
       ['profit_desc', '이익 높은순'], ['profit_asc', '이익 낮은순'],
       ['client', '고객사명순'], ['course', '과정명순']
@@ -1968,9 +1992,16 @@ async function renderProjectList() {
     '  <span class="cnt"><b>' + formatNumber(t.count || 0) + '</b>건</span>',
     '  <span class="it"><i>총 매출 <em>(부가세 별도)</em></i><b class="sales">' + formatNumber(t.sales || 0) + '</b></span>',
     '  <span class="it"><i>총 매입</i><b class="exp">' + formatNumber(t.expenses || 0) + '</b></span>',
-    '  <span class="it"><i>이익</i><b class="profit">' + formatNumber(t.profit || 0) + '</b>'
-    + (t.sales ? '<em>(' + ((t.profit / t.sales) * 100).toFixed(1) + '%)</em>' : '') + '</span>',
-    '  <span class="it"><i>미수금 <em>(부가세 포함)</em></i><b class="unpaid">' + formatNumber(t.unpaid || 0) + '</b></span>',
+    /*
+     * 이익과 미수금 전체금액은 관리자 화면에서만.
+     * 직원에게는 총 매출·총 매입까지만 보여준다. (대표님 지시 2026-10-28)
+     */
+    (isAdminView()
+      ? '  <span class="it"><i>이익</i><b class="profit">' + formatNumber(t.profit || 0) + '</b>'
+        + (t.sales ? '<em>(' + ((t.profit / t.sales) * 100).toFixed(1) + '%)</em>' : '') + '</span>'
+        + '  <span class="it"><i>미수금 <em>(부가세 포함)</em></i><b class="unpaid">'
+        + formatNumber(t.unpaid || 0) + '</b></span>'
+      : ''),
     '</div>',
 
     // ── 표 ──

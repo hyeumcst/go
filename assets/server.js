@@ -2510,6 +2510,23 @@ function projectsList(u, q) {
       if (sa !== sb) { if (!sa) return 1; if (!sb) return -1; return sa > sb ? 1 : -1; }
       return a.id - b.id;
     },
+    /*
+     * 발행일 순 — 세금계산서를 끊은 날 기준.
+     *
+     * 교육을 언제 했든 「언제 청구했는가」로 보고 싶을 때가 있다.
+     * (대표님 지시 2026-10-28)
+     * 여러 장이면 가장 이른 발행일로 본다. 아직 안 끊은 건은 맨 아래로.
+     */
+    issue_desc:  function (a, b) {
+      var ia = firstIssue[a.id] || '', ib = firstIssue[b.id] || '';
+      if (ia !== ib) { if (!ia) return 1; if (!ib) return -1; return ia < ib ? 1 : -1; }
+      return b.id - a.id;
+    },
+    issue_asc:   function (a, b) {
+      var ia = firstIssue[a.id] || '', ib = firstIssue[b.id] || '';
+      if (ia !== ib) { if (!ia) return 1; if (!ib) return -1; return ia > ib ? 1 : -1; }
+      return a.id - b.id;
+    },
     sales_desc:  function (a, b) { return (b.total_sales || 0) - (a.total_sales || 0); },
     sales_asc:   function (a, b) { return (a.total_sales || 0) - (b.total_sales || 0); },
     profit_desc: function (a, b) { return ((b.total_sales || 0) - (b.total_expenses || 0)) - ((a.total_sales || 0) - (a.total_expenses || 0)); },
@@ -3353,6 +3370,12 @@ function descBy_(field) {
 /* ═══════════════ 분석 본체 ═══════════════ */
 
 function analyticsGet(u, q) {
+  /*
+   * 매출·매입 분석은 관리자만 본다 — 이익이 그대로 드러나는 화면이다.
+   * 메뉴를 감추는 것만으로는 주소를 아는 사람을 막지 못한다.
+   * (대표님 지시 2026-10-28)
+   */
+  requireAdmin(u);
   q = q || {};
   var BASIS = ['start', 'invoice', 'overlap'].indexOf(q.basis) >= 0 ? q.basis : 'start';
   var y = String(q.year || new Date().getFullYear());
@@ -3672,6 +3695,7 @@ function analyticsGet(u, q) {
  *   key   그 항목의 이름
  */
 function analyticsDetail(u, q) {
+  requireAdmin(u);   /* 분석 화면에서만 쓰인다 — 관리자만 */
   q = q || {};
   if (!q.kind || !q.key) throw new Error('무엇을 볼지 알려주세요.');
 
