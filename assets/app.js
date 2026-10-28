@@ -1776,7 +1776,13 @@ function peopleLine(byPerson, projects) {
 // ═══════════ 과정 목록 ═══════════
 const LIST = {
   company: '',
-  q: '', month: '', manager: '', type: '', sort: 'recent',
+  /*
+   * 기본은 교육일 내림차순 — 가장 최근에 한 교육이 맨 위.
+   * (대표님 지시 2026-10-28. 전에는 「등록한 날」 순이라, 지난달 과정을
+   *  오늘 적으면 그것이 맨 위로 올라와 요즘 교육을 찾기 어려웠다)
+   * 서버도 같은 기본값을 쓴다 (Projects.gs 의 SORTS.date_desc).
+   */
+  q: '', month: '', manager: '', type: '', sort: 'date_desc',
   // 매입이 하나도 없는 과정만 보기 (대시보드 경고에서 넘어올 때)
   missing_expense: '',
   months: [], managers: []
@@ -1987,7 +1993,7 @@ function setListFilter(key, value) {
 }
 
 function resetListFilter() {
-  LIST.q = ''; LIST.month = ''; LIST.manager = ''; LIST.type = ''; LIST.sort = 'recent'; LIST.company = '';
+  LIST.q = ''; LIST.month = ''; LIST.manager = ''; LIST.type = ''; LIST.sort = 'date_desc'; LIST.company = '';
   renderProjectList();
 }
 
@@ -4689,6 +4695,16 @@ function renderBulk() {
 
     '</div>',
 
+    /*
+     * 「무엇이 바뀌는지」는 올린 단추 바로 아래에 나와야 한다.
+     *
+     * 전에는 화면 맨 끝에 있었다. 내보내기 칸을 그 위에 더하면서
+     * 더 멀어져, 엑셀을 올리고도 한참 내려가야 결과가 보였다.
+     * 올린 자리에서 바로 확인하시도록 3단계 바로 밑으로 옮긴다.
+     * (대표님 지시 2026-10-28)
+     */
+    '<div id="bk-result"></div>',
+
     /* ── 파이어베이스로 옮기기 ──
        편집기에서 함수를 찾아 실행하는 길은 대표님께 너무 어려웠다.
        늘 쓰시는 화면에 단추로 둔다. (대표님 지시 2026-10-27) */
@@ -4707,9 +4723,7 @@ function renderBulk() {
     '        <b>비밀번호는 담기지 않습니다.</b></p>',
     '    </div>',
     '  </div>',
-    '</div>',
-
-    '<div id="bk-result"></div>'
+    '</div>'
   ].join('');
 }
 

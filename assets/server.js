@@ -2326,8 +2326,27 @@ function projectsList(u, q) {
   var SORTS = {
     recent:      function (a, b) { return cmp_(b.created_at, a.created_at); },
     oldest:      function (a, b) { return cmp_(a.created_at, b.created_at); },
-    date_desc:   function (a, b) { return cmp_(b.schedule_dates, a.schedule_dates) || (b.id - a.id); },
-    date_asc:    function (a, b) { return cmp_(a.schedule_dates, b.schedule_dates) || (a.id - b.id); },
+    /*
+     * 교육일 순 — 「첫 교육일」을 기준으로 삼는다.
+     *
+     * 앱 전체가 그 날을 기준으로 쓰고 있다 (집계 기준 「교육 시작일」,
+     * 엑셀의 과정 차례도 같다). 여기만 다르면 같은 자료가 화면마다
+     * 다른 차례로 보인다.
+     *
+     * 전에는 schedule_dates 를 통째로 견주었다. 글자로 견주면 대개
+     * 맞지만, 일정이 비어 있거나 모양이 다르면 엉뚱한 자리에 간다.
+     * 일정이 없는 과정은 맨 아래로 보낸다.
+     */
+    date_desc:   function (a, b) {
+      var sa = firstStart_(a) || '', sb = firstStart_(b) || '';
+      if (sa !== sb) { if (!sa) return 1; if (!sb) return -1; return sa < sb ? 1 : -1; }
+      return b.id - a.id;
+    },
+    date_asc:    function (a, b) {
+      var sa = firstStart_(a) || '', sb = firstStart_(b) || '';
+      if (sa !== sb) { if (!sa) return 1; if (!sb) return -1; return sa > sb ? 1 : -1; }
+      return a.id - b.id;
+    },
     sales_desc:  function (a, b) { return (b.total_sales || 0) - (a.total_sales || 0); },
     sales_asc:   function (a, b) { return (a.total_sales || 0) - (b.total_sales || 0); },
     profit_desc: function (a, b) { return ((b.total_sales || 0) - (b.total_expenses || 0)) - ((a.total_sales || 0) - (a.total_expenses || 0)); },
@@ -2335,7 +2354,12 @@ function projectsList(u, q) {
     client:      function (a, b) { return cmp_(cName[a.client_id], cName[b.client_id]) || cmp_(b.created_at, a.created_at); },
     course:      function (a, b) { return cmp_(a.course_name, b.course_name); }
   };
-  rows = rows.slice().sort(SORTS[q.sort] || SORTS.recent);
+  /*
+   * 아무것도 고르지 않았으면 교육일 내림차순 — 가장 최근에 한 교육이 맨 위.
+   * (대표님 지시 2026-10-28. 전에는 「등록한 날」 순이었는데, 지난달 과정을
+   *  오늘 적으면 그것이 맨 위로 올라와 요즘 교육을 찾기 어려웠다)
+   */
+  rows = rows.slice().sort(SORTS[q.sort] || SORTS.date_desc);
 
   var page = parseInt(q.page, 10) || 1;
   var limit = parseInt(q.limit, 10) || 100;
