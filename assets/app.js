@@ -620,6 +620,85 @@ function prefetchIdle() {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   검색칸 — 다시 그려도 적던 자리에 그대로 있어야 한다
+
+   검색하면 본문을 통째로 다시 그린다. 그러면 검색칸도 **새것**으로
+   바뀌어, 적고 있던 자리(커서)와 한글 조합이 함께 사라진다.
+
+     · 한 글자 지우면 커서가 빠져 다시 눌러야 했다
+     · 「이현」 을 적으면 「현」 이 조합되는 중에 사라졌다
+       (ㅎ 를 친 뒤 잠깐 멈추면 그 사이에 다시 그려진다)
+
+   전에도 다시 그린 뒤 커서를 돌려놓으려 했지만, 그리는 일이
+   **기다려야 끝나는 일**(async)인데 기다리지 않고 바로 돌려놨다.
+   그래서 곧 사라질 옛 칸에 커서를 꽂고 있었다.
+   (대표님 지시 2026-10-29)
+   ═══════════════════════════════════════════════════════════ */
+
+/* 한글을 조합하는 중인가 — 조합 중에는 절대 다시 그리지 않는다 */
+let IME_ON = false;
+let IME_WAITING = null;
+document.addEventListener('compositionstart', function () { IME_ON = true; });
+document.addEventListener('compositionend', function () { imeDone(); });
+/*
+ * 조합하다 다른 데를 누르시면 「조합끝」 알림이 안 올 수도 있다.
+ * 그러면 조합 중인 채로 굳어 검색이 아예 안 그려진다 — 훨씬 나쁘다.
+ * 그래서 칸을 벗어날 때도 풀어 준다.
+ */
+document.addEventListener('focusout', function () { if (IME_ON) imeDone(); });
+
+/** 조합이 끝났다 — 미뤄 둔 그리기를 이제 한다 */
+function imeDone() {
+  IME_ON = false;
+  const go = IME_WAITING; IME_WAITING = null;
+  if (go) go();
+}
+
+/**
+ * 검색 때문에 다시 그린다.
+ *
+ * @param inputId  검색칸의 id
+ * @param latest   지금 적혀 있는 글자를 돌려주는 함수 (기억해 둔 값)
+ * @param render   다시 그리는 함수 (기다려야 끝날 수 있다)
+ */
+function searchRedraw(inputId, latest, render) {
+  const run = async function () {
+    const before = document.getElementById(inputId);
+    const mine = !!(before && document.activeElement === before);
+    let at = null, was = null;
+    if (mine) {
+      was = before.value;
+      try { at = [before.selectionStart, before.selectionEnd]; } catch (e) { at = null; }
+    }
+
+    await render();                      // ★ 다 그릴 때까지 기다린다
+
+    if (!mine) return;                   // 다른 데를 보고 계시면 건드리지 않는다
+    const el = document.getElementById(inputId);
+    if (!el) return;
+
+    /* 적어 둔 글자가 늘 옳다 — 그리느라 옛 글자로 덮이면 안 된다 */
+    const now = String(latest() == null ? '' : latest());
+    if (el.value !== now) el.value = now;
+
+    /*
+     * 기다리는 사이에 글자가 달라졌으면 커서는 맨 뒤로.
+     * 한글이 다 모였거나(이ㅎ → 이현) 한 글자 더 치신 경우다.
+     * 안 그러면 아까 그 자리에 커서를 꽂아 글자 가운데로 들어간다.
+     */
+    if (was === null || now !== was) at = [now.length, now.length];
+
+    try {
+      el.focus();
+      if (at && el.setSelectionRange) el.setSelectionRange(at[0], at[1]);
+    } catch (e) { /* 커서를 못 옮겨도 적는 데는 지장이 없다 */ }
+  };
+
+  if (IME_ON) { IME_WAITING = run; return; }   // 조합이 끝나면 그때 그린다
+  run();
+}
+
+/* ═══════════════════════════════════════════════════════════
    되돌리기 — 실수로 지웠을 때
 
    매출·매입·계산서 줄은 ✖ 한 번에 사라진다. 물어보지 않는 것이
@@ -1674,9 +1753,7 @@ function onVisitSearch(v) {
   VISIT.q = v;
   clearTimeout(visitSearchTimer);
   visitSearchTimer = setTimeout(function () {
-    renderVisits();
-    const el = document.getElementById('vs-q');
-    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    searchRedraw('vs-q', function () { return VISIT.q; }, renderVisits);
   }, 350);
 }
 
@@ -2101,9 +2178,7 @@ function onListSearch(v) {
   LIST.q = v;
   clearTimeout(listSearchTimer);
   listSearchTimer = setTimeout(function () {
-    renderProjectList();
-    const el = document.getElementById('lf-q');
-    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    searchRedraw('lf-q', function () { return LIST.q; }, renderProjectList);
   }, 350);
 }
 let currentProject = null;
@@ -5851,9 +5926,7 @@ function onOhSearch(v) {
   OH.q = v;
   clearTimeout(ohSearchTimer);
   ohSearchTimer = setTimeout(function () {
-    renderOverheads();
-    const el = document.getElementById('oh-q');
-    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    searchRedraw('oh-q', function () { return OH.q; }, renderOverheads);
   }, 350);
 }
 
@@ -6340,9 +6413,7 @@ function onEntSearch(v) {
   ENT.q = v;
   clearTimeout(entSearchTimer);
   entSearchTimer = setTimeout(function () {
-    renderEntity();
-    const el = document.getElementById('ent-q');
-    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    searchRedraw('ent-q', function () { return ENT.q; }, renderEntity);
   }, 300);
 }
 
@@ -6775,9 +6846,7 @@ function onTaxSearch(v) {
   TAX.q = v;
   clearTimeout(taxSearchTimer);
   taxSearchTimer = setTimeout(function () {
-    renderTax();
-    const el = document.getElementById('tax-q');
-    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    searchRedraw('tax-q', function () { return TAX.q; }, renderTax);
   }, 350);
 }
 
@@ -7577,12 +7646,13 @@ function findBar(key, placeholder, count, total) {
 }
 
 /** 어느 목록을 다시 그릴지 */
+/* 다 그릴 때까지 기다릴 수 있도록 **돌려준다** — 안 돌려주면 커서를 못 지킨다 */
 const FIND_RENDER = {
-  clients: function () { renderClients(); },
-  instructors: function () { renderInstructors(); },
-  partners: function () { renderPartners(); },
-  staff: function () { renderStaff(); },
-  cards: function () { renderCards(); }
+  clients: function () { return renderClients(); },
+  instructors: function () { return renderInstructors(); },
+  partners: function () { return renderPartners(); },
+  staff: function () { return renderStaff(); },
+  cards: function () { return renderCards(); }
 };
 
 let findTimer = null;
@@ -7590,9 +7660,7 @@ function onFind(key, v) {
   FIND[key] = v;
   clearTimeout(findTimer);
   findTimer = setTimeout(function () {
-    FIND_RENDER[key]();
-    const el = document.getElementById('find-' + key);
-    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    searchRedraw('find-' + key, function () { return FIND[key]; }, FIND_RENDER[key]);
   }, 250);
 }
 
@@ -8186,7 +8254,12 @@ let opSearchTimer = null;
 function onOpSearch(v) {
   OP.q = v;
   clearTimeout(opSearchTimer);
-  opSearchTimer = setTimeout(function () { OP.open = 0; OP_ITEMS = null; renderOpCosts(); }, 250);
+  opSearchTimer = setTimeout(function () {
+    searchRedraw('op-q', function () { return OP.q; }, function () {
+      OP.open = 0; OP_ITEMS = null;
+      return renderOpCosts();
+    });
+  }, 250);
 }
 function setOp(k, v) { OP[k] = v; OP.open = 0; OP_ITEMS = null; renderOpCosts(); }
 /** 조건 지우기 — 달도 「전체」로 (이번 달로 되돌아가면 지운 것이 아니다) */
