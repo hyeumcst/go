@@ -4200,8 +4200,8 @@ function renderAutoList(container, items, query, onClick, showSub = false) {
        */
       const tag = item._from ? `<span class="ac-tag">${esc(item._from)}</span>` : '';
       div.innerHTML = `<div class="main-text">${esc(item.name)}${tag}</div>`
-        + (showSub && (item.email || item.phone)
-            ? `<div class="sub-text">${esc(item.email || '')} ${esc(item.phone || '')}</div>` : '')
+        + (showSub && item.email
+            ? `<div class="sub-text">${esc(item.email)}</div>` : '')
         + (item.affiliation ? `<div class="sub-text">${esc(item.affiliation)}</div>` : '');
       div.onclick = () => { onClick(item); };
       container.appendChild(div);
@@ -6582,10 +6582,9 @@ async function renderTax() {
             + '<td class="amount-cell">' + formatNumber(v.total_amount) + '</td>'
             + '<td class="an-sub" style="font-size:0.8rem">'
             +   ((v.recipients || []).map(function (r, ri) {
-                  if (!r.name && !r.email && !r.phone) return '';
+                  if (!r.name && !r.email) return '';
                   return '<div class="recv-line">' + esc(r.name || '-')
                     + (r.email ? ' · ' + privateCell('inv' + v.id + '-' + ri + '-e', r.email, 'email') : '')
-                    + (r.phone ? ' · ' + privateCell('inv' + v.id + '-' + ri + '-p', r.phone, 'phone') : '')
                     + '</div>';
                 }).filter(Boolean).join('') || '-') + '</td>'
             + '<td class="c-mid">' + paidCell(v) + '</td>'
@@ -6948,7 +6947,7 @@ function fillInvItems(id) {
  */
 function invRecipients(it) {
   if (!Array.isArray(it.recipients)) it.recipients = [];
-  while (it.recipients.length < 2) it.recipients.push({ name: '', email: '', phone: '' });
+  while (it.recipients.length < 2) it.recipients.push({ name: '', email: '' });
   return it.recipients;
 }
 
@@ -6958,12 +6957,12 @@ function clearRecipient(id, i) {
   if (!it) return;
   const r = invRecipients(it)[i];
   if (!r) return;
-  const gone = { name: r.name, email: r.email, phone: r.phone };
-  r.name = ''; r.email = ''; r.phone = '';
-  if (gone.name || gone.email || gone.phone) {
+  const gone = { name: r.name, email: r.email };
+  r.name = ''; r.email = '';
+  if (gone.name || gone.email) {
     offerUndo('받는 사람 ' + (i + 1) + ' 「' + (gone.name || '이름 없음') + '」', function () {
       const back = invRecipients(it)[i];
-      if (back) { back.name = gone.name; back.email = gone.email; back.phone = gone.phone; }
+      if (back) { back.name = gone.name; back.email = gone.email; }
       renderInvoices();
     });
   }
@@ -7023,7 +7022,8 @@ function searchRecipient(el, id, i) {
     catch (e) { return; }
     if (list.length === 0) { box.classList.remove('show'); box.innerHTML = ''; return; }
     box.innerHTML = list.map(function (p, k) {
-      const sub = [p.email, p.phone].filter(Boolean).join(' · ');
+      /* 연락처는 받지도 보여주지도 않는다 (대표님 지시 2026-10-28) */
+      const sub = p.email || '';
       /* 담당자인지 지난 계산서에서 온 것인지 — 같은 이름이 둘 다 있을 수 있다 */
       const tag = p._from ? '<span class="ac-tag">' + esc(p._from) + '</span>' : '';
       return '<div class="autocomplete-item" onclick="pickRecipient(\'' + id + '\',' + i + ',' + k + ')">'
@@ -7046,7 +7046,7 @@ function pickRecipient(id, i, k) {
   if (!p) return;
   const it = State.invoices.find(function (x) { return x._id === id; });
   if (!it) return;
-  invRecipients(it)[i] = { name: p.name, email: p.email || '', phone: p.phone || '' };
+  invRecipients(it)[i] = { name: p.name, email: p.email || '' };
   const box = document.getElementById('auto-recv-' + id + '-' + i);
   if (box) { box.classList.remove('show'); box.innerHTML = ''; }
   renderInvoices();
@@ -7195,7 +7195,8 @@ function renderInvoices() {
     out.push('<div class="rf-lb">받는 사람</div>');
     out.push('<div class="recv-wrap">');
     invRecipients(it).forEach(function (r, ri) {
-      const known = !!(r.email || r.phone);
+      /* 연락처는 받지 않는다 — 계산서는 메일로 보낸다 (대표님 지시 2026-10-28) */
+      const known = !!r.email;
       out.push('<div class="recv-one">'
         + '<div class="recv-no">받는 사람 ' + (ri + 1) + '</div>'
         + '<div class="rf rf-rname autocomplete-wrapper"><span class="cap">이름</span>'
@@ -7211,11 +7212,6 @@ function renderInvoices() {
         +     ' placeholder="' + (r.name && !known ? '확인해주세요' : '') + '"'
         +     ' value="' + esc(r.email || '') + '"'
         +     ' oninput="updateRecipient(\'' + id + '\',' + ri + ',\'email\', this.value)"></div>'
-        + '<div class="rf rf-rphone"><span class="cap">연락처</span>'
-        +   '<input type="text" class="form-input' + (known || !r.name ? '' : ' need') + '"'
-        +     ' placeholder="' + (r.name && !known ? '확인해주세요' : '') + '"'
-        +     ' value="' + esc(r.phone || '') + '"'
-        +     ' oninput="updateRecipient(\'' + id + '\',' + ri + ',\'phone\', this.value)"></div>'
         /* 늘 두 자리를 보여주므로 ＋ 는 필요 없다.
            비우면 그 사람은 저장되지 않는다 — ✖ 는 「비우기」로 둔다. */
         + '<button type="button" class="recv-btn del" title="이 사람 비우기"'
@@ -7330,7 +7326,7 @@ function previewInvoice(id) {
   }, { supply: 0, vat: 0, total: 0 });
 
   const won = function (v) { return v ? formatNumber(v) : ''; };
-  const recv = invRecipients(it).filter(function (r) { return r.name || r.email || r.phone; });
+  const recv = invRecipients(it).filter(function (r) { return r.name || r.email; });
 
   const SHOW = Math.max(4, rows.length);
   const body = [];
@@ -7402,7 +7398,7 @@ function previewInvoice(id) {
       ? recv.map(function (r, ri) {
           return '<span class="one">' + esc(r.name || '-')
             + (r.email ? ' · ' + privateCell('pv-e' + ri, r.email, 'email') : '')
-            + (r.phone ? ' · ' + privateCell('pv-p' + ri, r.phone, 'phone') : '') + '</span>';
+            + '</span>';
         }).join('')
       : '<span class="one muted">아직 안 적었습니다</span>'),
     '  </div>',

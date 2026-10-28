@@ -1134,13 +1134,15 @@ function maskText(v) {
   return s.slice(0, 1) + rep('*', s.length - 1);
 }
 
-/** 계산서 받는 사람 — 이름은 누구에게 보내는지 알아야 하므로 남긴다 */
+/*
+ * 계산서 받는 사람 — 이름은 누구에게 보내는지 알아야 하므로 남긴다.
+ * 연락처는 받지 않으므로 가릴 것도 없다 (대표님 지시 2026-10-28).
+ */
 function maskRecipients(list) {
   return (Array.isArray(list) ? list : []).map(function (r) {
     return {
       name: (r && r.name) || '',
       email: maskEmail(r && r.email),
-      phone: maskPhone(r && r.phone),
       masked: true
     };
   });
@@ -2150,17 +2152,23 @@ function writeInvoices(projectId, invoices, baseAmount, vatMode, discountBase, c
     list = [{ amount: baseAmount, discount: 0, issue_date: null, paid_date: null, note: '', company: company }];
   }
 
-  // 받는 사람은 최대 2명. 아무것도 안 적은 줄은 버린다.
+  /*
+   * 받는 사람은 최대 2명. 아무것도 안 적은 줄은 버린다.
+   *
+   * 연락처는 받지 않는다. (대표님 지시 2026-10-28)
+   *   계산서는 메일로 보내므로 이메일이면 된다. 안 쓰는 개인정보를
+   *   들고 있으면 지킬 것만 늘어난다.
+   *   올라와도 여기서 버리므로 새로 쌓이지 않는다.
+   */
   var cleanRecipients = function (v) {
     return JSON.stringify((Array.isArray(v) ? v : [])
       .map(function (r) {
         return {
           name: String((r && r.name) || '').trim(),
-          email: String((r && r.email) || '').trim(),
-          phone: String((r && r.phone) || '').trim()
+          email: String((r && r.email) || '').trim()
         };
       })
-      .filter(function (r) { return r.name || r.email || r.phone; })
+      .filter(function (r) { return r.name || r.email; })
       .slice(0, 2));
   };
   // 화면은 늘 한 줄을 보여주므로 빈 줄이 올 수 있다 → 버린다
@@ -4035,11 +4043,15 @@ function invoiceRequesters_() {
  *
  * 두 군데서 모아 온다 (대표님 지시 2026-10-28)
  *   ① 그 고객사의 담당자  — 대개 이분들께 보낸다
- *   ② 지난 계산서의 받는 사람 — 이메일·연락처가 거기 적혀 있다
+ *   ② 지난 계산서의 받는 사람 — 이메일이 거기 적혀 있다
  *
- * 담당자 표에는 이메일·연락처 칸이 없다. 그래서 같은 이름이 지난
- * 계산서에도 있으면 거기 적힌 이메일·연락처를 끌어다 채워 준다.
+ * 담당자 표에는 이메일 칸이 없다. 그래서 같은 이름이 지난 계산서에도
+ * 있으면 거기 적힌 이메일을 끌어다 채워 준다.
  * 처음 보내는 분이면 비워서 보내고, 화면에서 적으시면 된다.
+ *
+ * 연락처는 받지도 보여주지도 않는다 (대표님 지시 2026-10-28).
+ * 계산서는 메일로 보내므로 이메일이면 된다. 안 쓰는 개인정보를
+ * 들고 있으면 지킬 것만 늘어난다.
  *
  * 세금계산서 담당자가 따로 있는 경우가 있어, 목록에 없는 이름도
  * 그대로 적어 쓸 수 있다 (화면이 적은 글자를 그냥 쓴다).
@@ -4078,8 +4090,7 @@ function invoiceRecipients(u, q) {
         if (past[key]) return;
         past[key] = {
           name: name,
-          email: String((p && p.email) || '').trim(),
-          phone: String((p && p.phone) || '').trim()
+          email: String((p && p.email) || '').trim()
         };
       });
     });
@@ -4101,7 +4112,6 @@ function invoiceRecipients(u, q) {
       add({
         name: String(c.name || '').trim(),
         email: hit.email || '',
-        phone: hit.phone || '',
         /* 직급·부서는 동명이인을 가리는 데 쓴다 */
         affiliation: [c.position, c.department].filter(Boolean).join(' · '),
         _from: '담당자'
@@ -4485,7 +4495,7 @@ function groupCols() {
     ['입금일', 'd'],
     ['받는사람', 't'],
     ['이메일', 't'],
-    ['연락처', 't'],
+    /* 연락처 칸은 뺐다 — 받지 않는 자료다 (대표님 지시 2026-10-28) */
     ['[자동] 계산서 공급가액', 'ro', 1],
     ['[자동] 계산서 부가세', 'ro', 1],
     ['[자동] 계산서 합계', 'ro', 1],
@@ -4555,7 +4565,7 @@ function groupMap() {
         '부가세처리': 'vat_mode', '절사기준': 'discount_base', '절사금액': 'discount',
         '계산서금액': '_amount', '청구/영수': 'pay_type',
         '발행일': 'issue_date', '입금일': 'paid_date',
-        '받는사람': '_recv_name', '이메일': '_recv_email', '연락처': '_recv_phone',
+        '받는사람': '_recv_name', '이메일': '_recv_email',
         '비고': 'note',
         '[자동] 계산서 공급가액': 'supply_amount', '[자동] 계산서 부가세': 'vat',
         '[자동] 계산서 합계': 'total_amount'
@@ -4616,7 +4626,7 @@ function groupRow_(kind, rec, ctx, headers, parent) {
     }
     if (k === '_recv_name') { row[i] = recvField_(rec.recipients, 'name'); return; }
     if (k === '_recv_email') { row[i] = ctx.personal ? recvField_(rec.recipients, 'email') : ''; return; }
-    if (k === '_recv_phone') { row[i] = ctx.personal ? recvField_(rec.recipients, 'phone') : ''; return; }
+
 
     var v = rec[k];
     row[i] = (v === null || v === undefined) ? '' : v;
@@ -5511,15 +5521,16 @@ function recvField_(raw, field) {
 }
 
 /** 쉼표로 이은 세 글자를 받는사람 목록으로 되돌린다 */
-function toRecipients_(names, emails, phones) {
+/* 연락처는 받지 않는다 — 이름과 이메일뿐이다 (대표님 지시 2026-10-28) */
+function toRecipients_(names, emails) {
   var sp = function (v) {
     return String(v || '').split(',').map(function (x) { return x.trim(); });
   };
-  var n = sp(names), e = sp(emails), p = sp(phones);
+  var n = sp(names), e = sp(emails);
   var out = [];
   for (var i = 0; i < n.length; i++) {
-    if (!n[i] && !e[i] && !p[i]) continue;
-    out.push({ name: n[i] || '', email: e[i] || '', phone: p[i] || '' });
+    if (!n[i] && !e[i]) continue;
+    out.push({ name: n[i] || '', email: e[i] || '' });
   }
   return out.slice(0, 2);
 }
@@ -5579,7 +5590,6 @@ function bulkSheetData(def, ctx) {
       }
       if (k === '_recv_name') return recvField_(r.recipients, 'name');
       if (k === '_recv_email') return ctx.personal ? recvField_(r.recipients, 'email') : '';
-      if (k === '_recv_phone') return ctx.personal ? recvField_(r.recipients, 'phone') : '';
 
       if (k === 'email' && !ctx.personal) return '';
 
@@ -6244,12 +6254,11 @@ function bulkNormalize_(key, obj, before) {
       out.discount = t0.discount;
     }
 
-    if (obj._recv_name !== undefined || obj._recv_email !== undefined || obj._recv_phone !== undefined) {
+    if (obj._recv_name !== undefined || obj._recv_email !== undefined) {
       var b = before || {};
       out.recipients = JSON.stringify(toRecipients_(
         obj._recv_name !== undefined ? obj._recv_name : recvField_(b.recipients, 'name'),
-        obj._recv_email !== undefined ? obj._recv_email : recvField_(b.recipients, 'email'),
-        obj._recv_phone !== undefined ? obj._recv_phone : recvField_(b.recipients, 'phone')
+        obj._recv_email !== undefined ? obj._recv_email : recvField_(b.recipients, 'email')
       ));
     }
     if (out.company !== undefined) out.company = normalizeCompany(out.company);
