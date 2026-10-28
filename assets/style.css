@@ -905,6 +905,10 @@ html { font-size: 16px; }
 .unpaid-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px;
   background: var(--danger-bg); color: var(--danger); font-weight: 700;
   font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+/* 아직 계산서가 안 나간 건 — 「완료」 와 헷갈리면 안 되므로 색을 달리한다 */
+.unissued-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px;
+  background: var(--warning-bg); color: var(--warning); font-weight: 700;
+  font-size: 0.8rem; white-space: nowrap; }
 
 /* ═══════════ 고객사 담당자 선택 ═══════════ */
 .contact-picker { display: grid; grid-template-columns: 1fr auto auto; gap: 0.4rem; align-items: stretch; }

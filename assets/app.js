@@ -2002,10 +2002,18 @@ async function renderProjectList() {
             +   formatNumber(profit) + '</td>'
             + '<td class="c-mid" style="font-size:0.8rem; color:var(--text-secondary)">'
             +   (p.issue_date || '-') + (p.invoice_count > 1 ? ' <span style="color:var(--text-muted)">외 ' + (p.invoice_count - 1) + '장</span>' : '') + '</td>'
+            /*
+             * 미수금 칸.
+             * 계산서가 아직 안 나간 건을 「완료」 라고 하면 안 된다 —
+             * 받을 돈이 0 이라서가 아니라 아직 청구를 안 한 것이다.
+             * (대표님 지시 2026-10-28)
+             */
             + '<td class="amount-cell">'
             +   (p.unpaid_amount > 0
                 ? '<span class="unpaid-badge">' + formatNumber(p.unpaid_amount) + '</span>'
-                : '<span style="color:var(--success); font-size:0.8rem">완료</span>')
+                : (p.issue_date
+                    ? '<span style="color:var(--success); font-size:0.8rem">완료</span>'
+                    : '<span class="unissued-badge">미발행</span>'))
             + '</td>'
             + (showCheck ? '<td class="c-mid">' + expenseCheckCell(p) + '</td>' : '')
             + '</tr>';
@@ -2088,7 +2096,13 @@ async function renderProjectForm(projectId = null) {
       currentProject = res.project;
       // 저장된 유형 칸에만 넣는다
       State.schedules = { 당일: [], 기간: [], 차수: [] };
-      State.schedules[currentProject.schedule_type || '당일'] = currentProject.schedule_dates || [];
+      /*
+       * 일정 없이 저장된 과정도 있다 (교육이 아닌 건).
+       * 빈 배열 그대로 두면 날짜를 골라도 넣을 데가 없다.
+       */
+      const gotSched = currentProject.schedule_dates || [];
+      State.schedules[currentProject.schedule_type || '당일'] =
+        gotSched.length ? gotSched : [{ s: '', e: '' }];
       State.expenseItems = res.expenses.map(e => ({...e, _id: Math.random().toString(36).substr(2, 9)}));
       State.saleItems = (res.sales || []).map(function (x) {
         return Object.assign({}, x, {
@@ -2365,10 +2379,21 @@ function rangeDays(r) {
 /** 지금 선택된 일정 유형 */
 function schedType() { return scheduleType(); }
 
-/** 현재 유형의 일정 배열 (없으면 만들어 준다) */
+/**
+ * 현재 유형의 일정 배열 (없으면 만들어 준다)
+ *
+ * ★ 당일·기간은 **칸을 늘 하나 그린다**. 그런데 담긴 줄이 없으면
+ *   날짜를 골라도 넣을 데가 없어 조용히 사라졌다 — 칸에는 날짜가
+ *   보이는데 「교육일수 0일 · 날짜를 선택해주세요」 가 그래서 나왔다.
+ *   일정 없이 저장된 과정을 열면 꼭 그렇게 됐다.
+ *   (대표님 지시 2026-10-28)
+ */
 function curDates(type) {
   const t = type || schedType();
   if (!State.schedules[t]) State.schedules[t] = [];
+  if (t !== '차수' && State.schedules[t].length === 0) {
+    State.schedules[t] = [{ s: '', e: '' }];
+  }
   return State.schedules[t];
 }
 
@@ -2763,8 +2788,10 @@ function parseManualSchedule(text) {
   renderSchedSummary();
 }
 function setSched(idx, key, val) {
-  const r = curDates()[idx];
-  if (!r) return;
+  const rows = curDates();
+  /* 넣을 줄이 없으면 만들어 준다 — 조용히 버리면 안 된다 */
+  while (rows.length <= idx) rows.push({ s: '', e: '' });
+  const r = rows[idx];
   r[key] = val;
   if (key === 's') {
     // 시작일만 넣었거나 종료일이 시작일보다 빠르면 종료일을 맞춰준다
