@@ -415,7 +415,25 @@ const SpreadsheetApp = __notHere('SpreadsheetApp');
 const DriveApp = __notHere('DriveApp');
 const HtmlService = __notHere('HtmlService');
 const ContentService = __notHere('ContentService');
-const MailApp = __notHere('MailApp');
+/*
+ * 메일만은 브라우저가 못 보낸다 — 구글 계정으로 나가야 하기 때문이다.
+ *
+ * 그렇다고 발행요청 전체를 앱스스크립트에 남겨 둘 수도 없다.
+ * 계산서가 이제 파이어베이스에 있어서, 앱스스크립트는 그 줄을 찾지
+ * 못한다 — 실제로 「계산서를 찾을 수 없습니다」 만 떴다.
+ * (대표님 지시 2026-10-28)
+ *
+ * 그래서 **짓는 일은 여기서** 하고(자료가 여기 있으니까),
+ * 다 지은 메일만 앱스스크립트에 넘겨 보낸다.
+ */
+let __MAILS = [];
+const MailApp = {
+  sendEmail: function (m) { __MAILS.push(m); }
+};
+/** 적어 둔 메일을 가져간다 (가져가면 비운다) */
+function fbTakeMails() { const out = __MAILS; __MAILS = []; return out; }
+/** 하다 말았으면 적어 둔 것도 버린다 */
+function fbDropMails() { __MAILS = []; }
 
 /* ═══════════════ 누구인가 ═══════════════
  *
@@ -1484,6 +1502,50 @@ function invoiceRequestTo_() {
       if (m && !seen[m]) { seen[m] = true; out.push(m); }
     });
   return out;
+}
+
+/**
+ * 브라우저가 다 지은 메일을 대신 보내 준다.
+ *   POST /mail/send   { to, subject, body, htmlBody }
+ *
+ * 자료는 파이어베이스에 있고 메일은 구글 계정으로만 나갈 수 있어서,
+ * **보내는 일 하나만** 앱스스크립트에 남는다. (대표님 지시 2026-10-28)
+ *
+ * ⚠ 아무 데나 보내는 길이 되면 안 된다.
+ *   로그인한 사람만 부를 수 있지만, 그것만으로는 모자라다 —
+ *   받는 사람을 그대로 믿으면 이 창구로 바깥에 메일을 뿌릴 수 있다.
+ *   그래서 회사 주소로만, 발행요청 메일만 나간다.
+ */
+function mailSend(u, b) {
+  if (!u) throw new Error('로그인이 필요합니다.');
+  b = b || {};
+
+  var to = String(b.to || '').split(',')
+    .map(function (x) { return String(x).trim(); })
+    .filter(function (x) { return x; });
+  if (!to.length) throw new Error('받는 사람이 없습니다.');
+  if (to.length > 5) throw new Error('받는 사람이 너무 많습니다.');
+
+  var dom = String(MAIL_DOMAIN).toLowerCase();
+  to.forEach(function (m) {
+    if (String(m).toLowerCase().slice(-dom.length) !== dom) {
+      throw new Error('회사 주소로만 보낼 수 있습니다. (' + m + ')');
+    }
+  });
+
+  var subject = String(b.subject || '').slice(0, 200);
+  if (subject.indexOf('[발행요청]') !== 0) {
+    throw new Error('보낼 수 없는 메일입니다.');
+  }
+
+  MailApp.sendEmail({
+    to: to.join(','),
+    subject: subject,
+    body: String(b.body || '').slice(0, 20000),
+    htmlBody: String(b.htmlBody || '').slice(0, 60000),
+    name: '혜움컨설팅 매출/매입 관리'
+  });
+  return { message: '메일을 보냈습니다.', to: to };
 }
 
 /** 돈을 보기 좋게 */
@@ -7189,6 +7251,9 @@ function route_(u, method, path, b, q) {
     }
   }
 
+  /* ───── 메일 보내기 (브라우저가 지은 것을 대신 보낸다) ───── */
+  if (head === 'mail' && POST && a === 'send') return mailSend(u, b);
+
   /* ───── 정산자료 ───── */
   if (head === 'export') {
     if (GET && a === 'excel') return settlementBuild(u, q);
@@ -7496,7 +7561,13 @@ async function fbEnsureData() {
  *   정산·강사명단 — 구글시트 파일을 만들어 준다
  */
 function fbStaysOnAppsScript(method, path) {
-  return /^\/invoices\/[^/]+\/request$/.test(path)
+  /*
+   * 발행요청은 더 이상 여기 없다.
+   * 계산서가 파이어베이스에 있어서 앱스스크립트가 못 찾는다.
+   * 이제 브라우저가 짓고, 다 지은 메일만 /mail/send 로 넘긴다.
+   * (대표님 지시 2026-10-28)
+   */
+  return path === '/mail/send'
     || path.indexOf('/export/instructors') === 0
     || path.indexOf('/export/excel') === 0
     || path.indexOf('/sync/') === 0;
@@ -7553,11 +7624,31 @@ async function fbHandle(method, path, data, query) {
    * 그 열쇠를 브라우저에 두면 누구나 쓸 수 있게 된다.
    * 세 분뿐이라 드문 일이므로, 콘솔에서 하시도록 안내한다.
    */
-  if (path === '/auth/register' || (method === 'PUT' && path.indexOf('/auth/users/') === 0)) {
+  if (path === '/auth/register') {
     throw new Error(
-      '계정 추가·변경은 파이어베이스 콘솔에서 합니다.\n'
+      '계정 추가는 파이어베이스 콘솔에서 합니다.\n'
       + 'console.firebase.google.com → 보안 → Authentication → Users\n'
       + '만드신 뒤 알려주시면 권한(관리자/직원)을 맞춰 드리겠습니다.');
+  }
+  /*
+   * 계정 고치기 — 이름·권한·사용중지는 파이어베이스 **자료**만 고치면
+   * 되므로 여기서 한다. 아이디(메일)와 비밀번호는 파이어베이스가 쥐고
+   * 있어서 콘솔에서 해야 한다.
+   *
+   * 전에는 고치기를 통째로 막아 뒀다. 그래서 「로그인 계정」에서 이름도
+   * 못 바꿨다. (대표님 지시 2026-10-28)
+   */
+  if (method === 'PUT' && path.indexOf('/auth/users/') === 0) {
+    const d = data || {};
+    if (d.password) {
+      throw new Error('비밀번호는 파이어베이스 콘솔에서 바꿉니다.\n'
+        + 'console.firebase.google.com → 보안 → Authentication → Users');
+    }
+    if (d.username) {
+      throw new Error('아이디(메일 주소)는 파이어베이스 콘솔에서 바꿉니다.\n'
+        + 'console.firebase.google.com → 보안 → Authentication → Users');
+    }
+    /* 이름·권한·사용중지는 아래로 내려가 그대로 처리된다 */
   }
 
   /*
@@ -7572,10 +7663,12 @@ async function fbHandle(method, path, data, query) {
    */
   __busy = true;
   let out;
+  fbDropMails();                     // 지난번에 남은 것이 섞이지 않게
   try {
     out = route_(fbUser(), method, path, data, query || {});
   } catch (e) {
     fbDropPending();                 // 하다 말았으면 모아 둔 것을 버린다
+    fbDropMails();
     __busy = false;
     fbResync();                      // 메모리가 반쯤 고쳐진 채 남지 않게
     throw e;
@@ -7591,6 +7684,7 @@ async function fbHandle(method, path, data, query) {
       await fbFlush(fs);
     } catch (e) {
       fbDropPending();
+      fbDropMails();                 // 저장도 안 됐으니 메일도 보내면 안 된다
       __busy = false;
       fbResync();                    // 저장이 안 됐으니 메모리도 못 믿는다
       throw new Error('저장하지 못했습니다. 다시 시도해주세요. (' + (e.message || e) + ')');
@@ -7645,6 +7739,7 @@ window.fbForget = fbForget;
 window.fbIdToken = fbIdToken;
 window.fbUnwatch = fbUnwatch;
 window.fbWatching = fbWatching;
+window.fbTakeMails = fbTakeMails;
 
 /* 시험할 때 쓰는 손잡이 */
 window.fbAuth = function () { return FBAUTH; };

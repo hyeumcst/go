@@ -85,6 +85,16 @@ const API = {
     if (typeof FB !== 'undefined' && FB.USE_FIREBASE
         && typeof fbHandle === 'function' && !fbStaysOnAppsScript(method, s.path)) {
       const v = await fbHandle(method, s.path, data, s.query);
+      /*
+       * 서버 코드가 보낼 메일을 적어 뒀으면 앱스스크립트에 넘겨 보낸다.
+       * 메일만은 구글 계정으로 나가야 해서 브라우저가 못 보낸다.
+       */
+      if (typeof fbTakeMails === 'function') {
+        const mails = fbTakeMails();
+        for (let i = 0; i < mails.length; i++) {
+          await this.sendMail(mails[i]);
+        }
+      }
       if (method === 'GET') this._cache[key] = { at: Date.now(), v: v };
       return v;
     }
@@ -130,6 +140,27 @@ const API = {
       if (typeof showScreen === 'function') showScreen();
     }
     throw new Error((out && out.error) || '요청 처리 중 오류가 발생했습니다.');
+  },
+
+  /**
+   * 다 지은 메일 한 통을 앱스스크립트에 넘겨 보낸다.
+   *
+   * 적힌 것(발행요청 기록)은 이미 파이어베이스에 저장된 뒤다.
+   * 그래서 메일이 안 나가면 「적히긴 했는데 메일이 안 갔다」고 알려 드린다 —
+   * 조용히 넘어가면 보낸 줄 아시게 된다.
+   */
+  async sendMail(mail) {
+    try {
+      await this.request('POST', '/mail/send', {
+        to: (mail && mail.to) || '',
+        subject: (mail && mail.subject) || '',
+        body: (mail && mail.body) || '',
+        htmlBody: (mail && mail.htmlBody) || ''
+      });
+    } catch (e) {
+      throw new Error('발행요청은 적혔지만 메일이 나가지 못했습니다. '
+        + '다시 보내기를 눌러주세요. (' + (e.message || e) + ')');
+    }
   },
 
   qs(params) {
