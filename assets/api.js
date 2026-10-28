@@ -336,6 +336,19 @@ function makeExcel(sheets, filename) {
   const PROJ_BG = 'DDD9C4';
   const LINE = 'BFBFBF';
 
+  /*
+   * 서버가 알아서 채우는 칸은 분홍색으로 칠한다. (대표님 지시 2026-10-28)
+   *
+   * 「[자동]」 이라고 적어 두기는 했지만 글자는 눈에 안 들어온다.
+   * 색이 있으면 「여기는 내가 적을 데가 아니구나」가 한눈에 보인다.
+   * 적어 넣어도 올릴 때 무시되고 서버가 다시 계산한다.
+   *
+   * 머리글은 진하게, 아래 칸들은 연하게 — 과정 줄의 베이지보다 색을
+   * 우선한다. 그래야 과정 줄에서도 자동 칸인 줄 안다.
+   */
+  const RO_HEAD = 'F4AEAE';
+  const RO_BG = 'FCE3E3';
+
   const wb = XLSX.utils.book_new();
 
   sheets.forEach(function (s) {
@@ -359,18 +372,21 @@ function makeExcel(sheets, filename) {
         if (!ws[ref]) ws[ref] = { t: 's', v: '' };
 
         const st = {};
+        const ro = !!(s.readonly || [])[c];     // 서버가 알아서 채우는 칸
 
         if (head) {
-          st.fill = { patternType: 'solid', fgColor: { rgb: HEAD_BG } };
+          st.fill = { patternType: 'solid', fgColor: { rgb: ro ? RO_HEAD : HEAD_BG } };
           st.font = { bold: true, sz: 10 };
           st.alignment = { vertical: 'center', horizontal: 'center', wrapText: true };
           st.border = { top: edge, bottom: edge, left: edge, right: edge };
         } else if (proj) {
-          st.fill = { patternType: 'solid', fgColor: { rgb: PROJ_BG } };
+          // 자동 칸은 과정 줄에서도 분홍 — 적을 데가 아니라는 표시가 먼저다
+          st.fill = { patternType: 'solid', fgColor: { rgb: ro ? RO_BG : PROJ_BG } };
           st.font = { bold: true, sz: 10 };
           st.alignment = { vertical: 'center' };
           st.border = { top: edge, bottom: edge };
         } else {
+          if (ro) st.fill = { patternType: 'solid', fgColor: { rgb: RO_BG } };
           st.font = { sz: 10 };
           st.alignment = { vertical: 'center' };
         }

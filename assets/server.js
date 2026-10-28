@@ -4957,6 +4957,215 @@ function groupPatch_(headers, at, kindOf, def, obj, wasRow, old) {
 }
 
 
+/* ═════ BulkNew.gs ═════ */
+/**
+ * 「신규 과정 추가」 시트 — 꼭 필요한 것만 적어 올리면 알아서 정리한다.
+ * ════════════════════════════════════════════════════════════
+ *
+ * 왜 따로 두는가 (대표님 지시 2026-10-28)
+ *   「과정」 시트는 칸이 47개다. 고치기에는 좋지만, 새 과정 하나를
+ *   넣으려고 그 넓은 시트에서 네 줄(과정·매출·매출·매입)을 만들고
+ *   임시 번호까지 맞춰 적는 것은 번거롭다.
+ *
+ *   여기서는 **한 줄에 한 과정**이다. 고객사·과정명·날짜만 적으면 된다.
+ *   매출과 매입은 적은 만큼만 만들어진다.
+ *
+ * 어떻게 도는가
+ *   새로 짜지 않는다. 이 시트의 한 줄을 「과정 시트에 네 줄 적은 것」으로
+ *   바꿔서, 지금까지 쓰던 추가 기계에 그대로 넘긴다.
+ *   그래야 고객사 만들기·합계 다시 계산·미리보기가 공짜로 따라온다.
+ *
+ * 내려받을 때는 늘 비어 있다
+ *   보기용 줄을 넣어 두면 그대로 올라와 가짜 과정이 생긴다.
+ *   그래서 머리글만 보내고, 안내는 머리글 안에 적는다.
+ */
+
+var NEW_SHEET = '신규 과정 추가';
+
+/**
+ * 칸 — [머리글, 쓸 곳, 종류, 돈?]
+ * 적는 칸만 둔다. 자동으로 계산되는 것은 아예 없다.
+ */
+function newProjCols() {
+  return [
+    ['고객사 *', '_client', 't'],
+    ['과정명 *', 'course_name', 't'],
+    ['교육일정 * (예: 2026-11-03 또는 2026-11-03~2026-11-05)', '_dates', 't'],
+    ['교육구분 (비우면 교육)', 'type', 't'],
+    ['회사 (비우면 혜움컨설팅)', 'company', 't'],
+    ['혜움담당자', 'manager', 't'],
+    ['매출 인건비', '_s_labor', 'n', 1],
+    ['매출 운영비', '_s_oper', 'n', 1],
+    ['매출 연수원비', '_s_venue', 'n', 1],
+    ['매입 이름 (강사·협력사)', '_e_name', 't'],
+    ['매입 금액', '_e_amount', 'n', 1],
+    ['매입 세율 (비우면 3.3%)', '_e_tax', 't'],
+    ['메모', 'memo', 't']
+  ];
+}
+
+/** 내려받을 때 — 머리글만, 줄은 없다 */
+function newProjSheetData() {
+  return { header: newProjCols().map(function (c) { return c[0]; }), rows: [] };
+}
+
+/* ───────── 올라온 것을 읽는다 ───────── */
+
+function newProjBlank_(v) {
+  return v === null || v === undefined || String(v).trim() === '';
+}
+
+/**
+ * 「신규 과정 추가」 시트를 읽어, 과정 시트와 같은 모양의 계획으로 바꾼다.
+ *
+ * @return {Object} { plan, problems, count }
+ */
+function newProjDiff_(grid) {
+  var plan = {
+    projects: { add: [], edit: [], del: [] },
+    project_sales: { add: [], edit: [], del: [] },
+    project_expenses: { add: [], edit: [], del: [] }
+  };
+  var problems = [];
+  var count = 0;
+
+  if (!grid || grid.length < 2) return { plan: plan, problems: problems, count: 0 };
+
+  var cols = newProjCols();
+  var headers = grid[0].map(function (h) { return String(h === null || h === undefined ? '' : h).trim(); });
+  var at = {};
+  cols.forEach(function (c) {
+    var i = headers.indexOf(c[0]);
+    if (i >= 0) at[c[0]] = i;
+  });
+
+  var need = ['고객사 *', '과정명 *'];
+  for (var k = 0; k < need.length; k++) {
+    if (at[need[k]] === undefined) {
+      problems.push(NEW_SHEET + ' 시트의 머리글이 다릅니다. '
+        + '「' + need[k] + '」 칸을 찾지 못했습니다. 새로 내려받아 쓰세요.');
+      return { plan: plan, problems: problems, count: 0 };
+    }
+  }
+
+  var get = function (line, name, kind) {
+    if (at[name] === undefined) return null;
+    return cellValue_(line[at[name]], kind || 't');
+  };
+  var num = function (line, name) {
+    var v = get(line, name, 'n');
+    return (typeof v === 'number' && !isNaN(v)) ? v : 0;
+  };
+
+  for (var r = 1; r < grid.length; r++) {
+    var line = grid[r] || [];
+
+    /* 아무것도 안 적힌 줄은 건너뛴다 — 빈 줄을 남겨 두어도 아무 일이 없게 */
+    var any = false;
+    for (var c2 = 0; c2 < headers.length; c2++) {
+      if (!newProjBlank_(line[c2])) { any = true; break; }
+    }
+    if (!any) continue;
+
+    var client = get(line, '고객사 *');
+    var course = get(line, '과정명 *');
+    var dates = get(line, '교육일정 * (예: 2026-11-03 또는 2026-11-03~2026-11-05)');
+
+    if (newProjBlank_(client) || newProjBlank_(course)) {
+      problems.push(NEW_SHEET + ' ' + (r + 1) + '번째 줄: 고객사와 과정명은 꼭 적어야 합니다.');
+      continue;
+    }
+    if (newProjBlank_(dates)) {
+      problems.push(NEW_SHEET + ' ' + (r + 1) + '번째 줄: 교육일정을 적어주세요. '
+        + '(예: 2026-11-03 또는 2026-11-03~2026-11-05)');
+      continue;
+    }
+    /* 날짜를 못 알아들으면 일정 없는 과정이 조용히 생긴다 — 먼저 걸러낸다 */
+    var parsed = textToDates_(String(dates));
+    if (!parsed.length || !parsed[0].s) {
+      problems.push(NEW_SHEET + ' ' + (r + 1) + '번째 줄: 교육일정 「' + dates
+        + '」 을 알아듣지 못했습니다. 2026-11-03 또는 2026-11-03~2026-11-05 처럼 적어주세요.');
+      continue;
+    }
+
+    /*
+     * 매입은 이름과 금액이 짝이다.
+     *
+     * 이름만 적고 금액을 빠뜨렸을 때 과정만 만들어 버리면, 적으려던
+     * 매입이 조용히 사라진다. 그러면 「매입이 비어 있다」는 경고만
+     * 나중에 뜨고, 왜 빠졌는지는 알 길이 없다.
+     * 그래서 그 줄은 통째로 건너뛰고 고쳐서 다시 올리시게 한다.
+     */
+    var eAmt = num(line, '매입 금액');
+    var eName = get(line, '매입 이름 (강사·협력사)');
+    if (!eAmt && !newProjBlank_(eName)) {
+      problems.push(NEW_SHEET + ' ' + (r + 1) + '번째 줄: 매입 이름 「' + eName
+        + '」 만 적고 금액이 비어 있습니다. 금액을 적거나 이름을 지워주세요. '
+        + '(이 줄은 만들지 않았습니다)');
+      continue;
+    }
+
+    count++;
+    var tmp = '__new_np' + count;
+
+    var type = get(line, '교육구분 (비우면 교육)');
+    var company = get(line, '회사 (비우면 혜움컨설팅)');
+
+    plan.projects.add.push({
+      row: r + 1,
+      tempId: tmp,
+      data: {
+        _client: client,
+        course_name: course,
+        _dates: String(dates),
+        /* 날짜를 여러 개 적었으면 「차수」, 범위면 「기간」, 하나면 「당일」 */
+        schedule_type: parsed.length > 1 ? '차수'
+          : (parsed[0].e && parsed[0].e !== parsed[0].s ? '기간' : '당일'),
+        type: newProjBlank_(type) ? '교육' : type,
+        company: newProjBlank_(company) ? DEFAULT_COMPANY : company,
+        manager: get(line, '혜움담당자') || '',
+        memo: get(line, '메모') || '',
+        vat_mode: '별도'
+      }
+    });
+
+    /* 매출 — 적은 분류만 만든다 */
+    [['_s_labor', '매출 인건비', '인건비'],
+     ['_s_oper', '매출 운영비', '운영비'],
+     ['_s_venue', '매출 연수원비', '연수원비']].forEach(function (s) {
+      var amt = num(line, s[1]);
+      if (!amt) return;
+      plan.project_sales.add.push({
+        row: r + 1,
+        data: {
+          project_id: tmp, category: s[2], name: s[2],
+          amount: amt,
+          /* 금액만 적었으므로 수기작성 — 안 그러면 단가(0)×수량(0)=0 이 된다 */
+          is_manual: 1
+        }
+      });
+    });
+
+    /* 매입 — 금액을 적었을 때만 (짝이 안 맞는 줄은 위에서 걸렀다) */
+    if (eAmt) {
+      var tax = get(line, '매입 세율 (비우면 3.3%)');
+      plan.project_expenses.add.push({
+        row: r + 1,
+        data: {
+          project_id: tmp, category: '강의',
+          name: newProjBlank_(eName) ? '' : eName,
+          total_amount: eAmt,
+          tax_type: newProjBlank_(tax) ? '3.3%' : tax,
+          is_manual: 1
+        }
+      });
+    }
+  }
+
+  return { plan: plan, problems: problems, count: count };
+}
+
+
 /* ═════ Bulk.gs ═════ */
 /**
  * 엑셀로 한꺼번에 고치기
@@ -5045,6 +5254,12 @@ function bulkSheets() {
     /* 과정 하나당 한 줄 — 전체를 훑어볼 때 (보기 전용) */
     { key: '_summary', name: '과정 요약', edit: false, summary: true, cols: summaryCols() },
     { key: '_group', name: GROUP_SHEET, edit: true, group: true, cols: groupCols() },
+    /*
+     * 새 과정 하나를 한 줄로 넣는 시트. 늘 비어 있다.
+     * 「과정」 시트는 칸이 47개라 새로 넣기에는 번거롭다.
+     * (대표님 지시 2026-10-28)
+     */
+    { key: '_newproj', name: NEW_SHEET, edit: true, newproj: true, cols: newProjCols() },
     {
       key: 'clients', name: '고객사', edit: true,
       cols: [['번호', 'id', 'ref'], ['고객사명', 'name', 't'], ['사용', 'is_active', 'n']]
@@ -5188,6 +5403,7 @@ function invoiceItemRows_(ctx) {
 function bulkSheetData(def, ctx) {
   if (def.summary) return summarySheetData(ctx);
   if (def.group) return groupSheetData(ctx);
+  if (def.newproj) return newProjSheetData();
   if (def.items) {
     return { header: def.cols.map(function (c) { return c[0]; }), rows: invoiceItemRows_(ctx) };
   }
@@ -5401,6 +5617,32 @@ function bulkDiff_(sheetsIn) {
           name: LABEL[t], key: t, skipped: false,
           add: x.add, edit: x.edit, del: x.del
         });
+      });
+      return;
+    }
+
+    /*
+     * 「신규 과정 추가」 시트 — 한 줄을 과정+매출+매입 여러 줄로 푼다.
+     *
+     * 푼 것을 「과정」 시트가 만든 계획에 **더한다** (덮어쓰지 않는다).
+     * 두 시트를 같이 고쳐 올릴 수 있어야 하기 때문이다.
+     * 임시 번호를 붙여 두면 저장할 때 realPid 가 진짜 번호로 이어 준다.
+     */
+    if (def.newproj) {
+      var ng = sheetsIn[def.name];
+      if (!ng) {
+        summary.push({ name: def.name, skipped: true, add: 0, edit: 0, del: 0 });
+        return;
+      }
+      var nd = newProjDiff_(ng);
+      nd.problems.forEach(function (x) { problems.push(x); });
+      Object.keys(nd.plan).forEach(function (t) {
+        if (!plan[t]) plan[t] = { add: [], edit: [], del: [] };
+        nd.plan[t].add.forEach(function (a) { plan[t].add.push(a); });
+      });
+      summary.push({
+        name: def.name, key: '_newproj', skipped: false,
+        add: nd.count, edit: 0, del: 0
       });
       return;
     }
@@ -6559,6 +6801,7 @@ async function fbFindUserRow(email) {
 }
 
 async function fbLogout() {
+  fbUnwatch();                 // 구독을 끊지 않으면 나간 뒤에도 자료가 계속 들어온다
   if (FBAUTH) { try { await FBAUTH.signOut(); } catch (e) {} }
   fbSetUser(null);
   fbForget();
@@ -6566,6 +6809,7 @@ async function fbLogout() {
 
 /** 들고 있던 자료를 버린다 (다른 사람으로 들어갈 때) */
 function fbForget() {
+  fbUnwatch();
   TABLES.forEach(function (t) { SNAP[t] = []; SNAP_BY_ID[t] = {}; });
   SNAP_AT = 0;
   fbDropPending();
@@ -6573,22 +6817,106 @@ function fbForget() {
 
 /* ───────── 자료 들고 오기 ───────── */
 
-/* 들고 있는 자료가 이보다 오래되면 다시 읽는다.
-   다른 분이 고친 것을 못 보고 덮어쓰는 일을 줄인다. */
-const FB_FRESH_MS = 60000;
+/*
+ * ───────── 왜 「구독」으로 바꿨는가 ─────────
+ *
+ * 전에는 저장하기 직전마다 957줄을 통째로 다시 읽었다.
+ * 남이 고친 것을 못 보고 덮어쓰지 않으려는 뜻이었지만, 값이 너무 컸다.
+ *
+ *   화면 한 번 열 때        957건
+ *   저장 한 번 할 때마다     957건   ← 이것
+ *   세 분이 하루 20번 저장   약 58,000건
+ *   파이어베이스 하루 한도    50,000건
+ *
+ * 2026-10-28 에 실제로 한도를 넘겨 사이트가 자료를 못 읽었다.
+ *
+ * 이제는 들어올 때 한 번만 전부 읽고, 그 뒤로는 파이어베이스가
+ * **바뀐 문서만** 보내준다 (onSnapshot). 저장 전에 다시 읽지 않는다.
+ *
+ *   화면 한 번 열 때        957건 (처음 한 번)
+ *   저장 한 번 할 때마다     0건
+ *   하루                  약 3,000건
+ *
+ * 덤으로 더 좋아진다 — 김소애 님이 고친 것이 임영환 님 화면에
+ * 곧바로 들어온다. 전에는 최대 1분 늦게 보였다.
+ */
 
 let __loading = null;
+let __watchers = [];            // 구독을 끊을 때 쓸 손잡이들
 
-async function fbEnsureData(force) {
-  if (!force && fbSnapLoaded() && fbSnapAge() < FB_FRESH_MS) return;
-  if (__loading) return __loading;          // 동시에 여러 번 부르면 한 번만
+/** 지금 자료를 받아 두고 있는가 */
+function fbWatching() { return __watchers.length > 0; }
 
-  const fs = {
-    db: FBDB,
-    collection: function (db, t) { return db.collection(t); },
-    getDocs: function (ref) { return ref.get(); }
-  };
-  __loading = fbLoadAll(fs, fbUser()).finally(function () { __loading = null; });
+/** 구독을 모두 끊는다 (나갈 때 · 다른 사람으로 들어올 때) */
+function fbUnwatch() {
+  __watchers.forEach(function (stop) { try { stop(); } catch (e) {} });
+  __watchers = [];
+}
+
+/**
+ * 표마다 구독을 건다.
+ *
+ * 첫 번째 응답이 그 표의 전부다 (= 처음 한 번 읽기).
+ * 그 뒤로는 바뀐 문서만 온다.
+ *
+ * @returns {Promise} 모든 표의 첫 응답이 올 때까지
+ */
+function fbWatchAll(u) {
+  const admin = !!(u && u.role === 'admin');
+  const t0 = Date.now();
+
+  return Promise.all(TABLES.map(function (t) {
+    return new Promise(function (ok, no) {
+      let first = true;
+      const stop = FBDB.collection(t).onSnapshot(
+        function (snap) {
+          /*
+           * 요청을 처리하는 동안에는 메모리를 건드리지 않는다.
+           * route_ 가 SNAP 을 읽고 고치는 중에 바뀌면 숫자가 어긋난다.
+           * 끝난 뒤 다시 받으면 되므로, 그때는 그냥 흘려보낸다.
+           */
+          if (__busy) { __missed = true; return; }
+          fbApplySnap(t, snap);
+          if (first) { first = false; ok(); }
+        },
+        function (err) {
+          if (!first) return;                 // 돌다가 끊긴 것은 아래에서 다시 건다
+          first = false;
+          const denied = /permission|insufficient/i.test(String(err && (err.code || err.message)));
+          if (denied && !admin && ADMIN_ONLY_TABLES.indexOf(t) >= 0) {
+            SNAP[t] = []; SNAP_BY_ID[t] = {};
+            return ok();                      // 직원이 관리자 전용 표에서 막히는 것은 당연하다
+          }
+          no(new Error('「' + (TAB[t] || t) + '」을(를) 읽지 못했습니다. '
+            + (denied ? '보안 규칙을 확인해주세요.' : (err && err.message) || '')));
+        }
+      );
+      __watchers.push(stop);
+    });
+  })).then(function () {
+    SNAP_AT = Date.now();
+    Logger.log('자료를 받아 두기 시작했습니다 (' + (Date.now() - t0) + 'ms)');
+  });
+}
+
+/** 받은 것을 메모리에 얹는다 */
+function fbApplySnap(table, snap) {
+  const rows = snap.docs.map(function (d) { return d.data(); });
+  SNAP[table] = rows;
+  const by = {};
+  rows.forEach(function (r) { by[Number(r.id)] = r; });
+  SNAP_BY_ID[table] = by;
+}
+
+/* 요청을 처리하는 동안에는 메모리를 바꾸지 않는다 */
+let __busy = false;
+let __missed = false;
+
+async function fbEnsureData() {
+  if (fbWatching() && fbSnapLoaded()) return;     // 이미 받아 두고 있다
+  if (__loading) return __loading;                // 동시에 여러 번 불러도 한 번만
+
+  __loading = fbWatchAll(fbUser()).finally(function () { __loading = null; });
   return __loading;
 }
 
@@ -6664,15 +6992,24 @@ async function fbHandle(method, path, data, query) {
       + '만드신 뒤 알려주시면 권한(관리자/직원)을 맞춰 드리겠습니다.');
   }
 
-  // 고치는 요청이면 늘 최신 자료 위에서 고친다
-  await fbEnsureData(method !== 'GET');
+  /*
+   * 자료는 구독해 두고 있다 — 다시 읽지 않는다.
+   * 처음 한 번만 전부 받고, 그 뒤로는 바뀐 것이 저절로 들어온다.
+   */
+  await fbEnsureData();
 
+  /*
+   * 여기서부터 저장까지는 메모리를 남이 못 건드리게 잠근다.
+   * route_ 가 SNAP 을 읽고 고치는 중에 구독이 끼어들면 숫자가 어긋난다.
+   */
+  __busy = true;
   let out;
   try {
     out = route_(fbUser(), method, path, data, query || {});
   } catch (e) {
     fbDropPending();                 // 하다 말았으면 모아 둔 것을 버린다
-    fbForget();                      // 메모리가 반쯤 고쳐진 채 남지 않게
+    __busy = false;
+    fbResync();                      // 메모리가 반쯤 고쳐진 채 남지 않게
     throw e;
   }
 
@@ -6686,11 +7023,29 @@ async function fbHandle(method, path, data, query) {
       await fbFlush(fs);
     } catch (e) {
       fbDropPending();
-      fbForget();                    // 저장이 안 됐으니 메모리도 못 믿는다
+      __busy = false;
+      fbResync();                    // 저장이 안 됐으니 메모리도 못 믿는다
       throw new Error('저장하지 못했습니다. 다시 시도해주세요. (' + (e.message || e) + ')');
     }
   }
+
+  __busy = false;
+  /* 일하는 동안 들어온 것이 있으면 이제 받는다 */
+  if (__missed) { __missed = false; fbResync(); }
   return out;
+}
+
+/**
+ * 메모리를 못 믿게 됐을 때 — 구독을 다시 건다.
+ *
+ * 구독을 끊었다 다시 걸면 첫 응답으로 전부가 다시 온다.
+ * 흔한 일이 아니라서(오류가 났을 때뿐) 읽기 수에는 영향이 없다.
+ */
+function fbResync() {
+  fbUnwatch();
+  SNAP_AT = 0;
+  fbDropPending();
+  /* 다음 요청 때 fbEnsureData 가 알아서 다시 건다 */
 }
 
 /**
@@ -6720,6 +7075,8 @@ window.fbReady = fbReady;
 window.fbUser = fbUser;
 window.fbForget = fbForget;
 window.fbIdToken = fbIdToken;
+window.fbUnwatch = fbUnwatch;
+window.fbWatching = fbWatching;
 
 /* 시험할 때 쓰는 손잡이 */
 window.fbAuth = function () { return FBAUTH; };
