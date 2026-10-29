@@ -3280,6 +3280,20 @@ function updateInvoice(id, field, value) {
   // 금액을 직접 고치면 그 뒤로는 자동으로 안 바꾼다
   if (field === 'amount') it.is_manual = true;
   if (field === 'amount' || field === 'discount' || field === 'paid_date') renderInvoiceTotals();
+  /* 결제에 손대면 외상미수금(나머지)을 그 자리에서 다시 적는다 */
+  if (field === 'amount' || field === 'discount'
+      || field === 'cash' || field === 'check_amount' || field === 'note_amount') {
+    const cel = document.getElementById('invc-' + id);
+    if (cel) cel.innerText = formatNumber(invCredit(it));
+  }
+}
+
+/** 외상미수금 — 계산서 합계에서 현금·수표·어음을 뺀 나머지 */
+function invCredit(it) {
+  const t = invCalc(it).total;
+  const paid = (parseNumber(it.cash) || 0) + (parseNumber(it.check_amount) || 0)
+    + (parseNumber(it.note_amount) || 0);
+  return Math.max(0, t - paid);
 }
 
 /** 계산서 합계 · 매출과의 차이 · 미수금 */
@@ -7712,14 +7726,19 @@ function renderInvoices() {
      * (홈택스가 그렇게 적는다). 적지 않았는데 숫자가 보이는 까닭이라
      * 한 줄로 적어 둔다. (대표님 물으심 2026-10-29)
      */
-    out.push('<div class="inv-pay-note">현금 · 수표 · 어음을 적지 않으면 '
-      + '<b>합계 전액이 외상미수금</b>으로 잡힙니다 — 홈택스 발행 화면과 같은 모양입니다.</div>');
+    out.push('<div class="inv-pay-note">외상미수금은 <b>계산서 합계에서 '
+      + '현금 · 수표 · 어음을 뺀 나머지</b>입니다 — 홈택스 발행 화면과 같은 모양이라 '
+      + '여기서는 따로 적지 않습니다.</div>');
     out.push('<div class="rline sub-line">');
     out.push('<div class="rf-lb">결제</div>');
-    [['cash', '현금'], ['check_amount', '수표'], ['note_amount', '어음'], ['credit_amount', '외상미수금']]
+    [['cash', '현금'], ['check_amount', '수표'], ['note_amount', '어음']]
       .forEach(function (p) {
-        out.push(f('rf-money sm', p[1], money(p[0], it[p[0]], p[0] === 'credit_amount' ? '자동' : '0')));
+        out.push(f('rf-money sm', p[1], money(p[0], it[p[0]], '0')));
       });
+    /* 외상미수금은 적는 칸이 아니다 — 늘 나머지를 셈해서 보여준다 */
+    out.push('<div class="rf rf-money sm"><span class="cap">외상미수금</span>'
+      + '<div class="form-input ta-r inv-credit" id="invc-' + id + '">'
+      + formatNumber(invCredit(it)) + '</div></div>');
     out.push('<button type="button" class="btn btn-outline btn-sm inv-prev"'
       + ' onclick="previewInvoice(\'' + id + '\')">🔍 미리보기</button>');
     out.push(formReqBtn(it));

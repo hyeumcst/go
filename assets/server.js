@@ -2357,9 +2357,17 @@ function writeInvoices(projectId, invoices, baseAmount, vatMode, discountBase, c
     var mode = normalizeMode(followSales ? vatMode : (it.vat_mode || vatMode));
     var dbase = normalizeBase(it.discount_base || discountBase);
     var t = computeTotals(rawAmt, it.discount, mode, dbase);
-    var credit = (it.credit_amount !== undefined && it.credit_amount !== '')
-      ? money_(it.credit_amount)
-      : Math.max(0, t.total - money_(it.cash) - money_(it.check_amount) - money_(it.note_amount));
+    /*
+     * 외상미수금은 **계산서 합계에서 현금·수표·어음을 뺀 나머지**다.
+     * 홈택스도 네 가지를 더하면 합계가 되도록 적는다.
+     *
+     * 전에는 보내온 값이 있으면 그대로 믿었다. 그래서 한 번 적힌
+     * 금액이 계산서 합계가 바뀐 뒤에도 그대로 남았다 —
+     * 합계 37,290,000 인데 외상미수금만 41,019,000 으로 남아 있었다.
+     * (대표님 지시 2026-10-29)
+     */
+    var credit = Math.max(0,
+      t.total - money_(it.cash) - money_(it.check_amount) - money_(it.note_amount));
     return {
       project_id: projectId, seq: i + 1,
       supply_amount: t.supply, vat: t.vat, total_amount: t.total, discount: t.discount,

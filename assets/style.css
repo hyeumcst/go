@@ -981,6 +981,13 @@ html { font-size: 16px; }
 .data-table th.th-num, .data-table td.amount-cell,
 .data-table th.th-r,   .data-table td.td-r { text-align: right; }
 
+/* 외상미수금 — 적는 칸이 아니라 셈해서 보여주는 칸 */
+.inv-credit {
+  display: flex; align-items: center; justify-content: flex-end;
+  background: var(--bg-secondary); color: var(--text-secondary);
+  font-variant-numeric: tabular-nums; cursor: default;
+}
+
 /* 계산서 결제 줄 안내 */
 .inv-pay-note {
   font-size: 0.78rem; color: var(--text-muted);
