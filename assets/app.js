@@ -597,11 +597,7 @@ function prefetchRoute(route) {
     analytics: function () { return API.getAnalytics(AN); },
     visits: function () { return API.get('/visits' + API.qs({ q: VISIT.q, done: VISIT.done })); },
     projects: function () {
-      return API.getProjects({
-        q: LIST.q, month: LIST.month, manager: LIST.manager,
-        type: LIST.type, sort: LIST.sort, company: LIST.company,
-        missing_expense: LIST.missing_expense, include_checked: LIST.include_checked
-      });
+      return API.getProjects(listQuery());
     },
     tax: function () { return API.getInvoices(TAX); }
   }[route];
@@ -630,6 +626,84 @@ function prefetchIdle() {
   order.forEach(function (r, i) {
     setTimeout(function () { prefetchRoute(r); }, 2500 + i * 1500);
   });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   쪽 나누기 — 열 줄이 넘으면 넘겨 본다
+
+   한 화면에 수백 줄이 쏟아지면 찾기도 어렵고 그리는 데도 오래 걸린다.
+   몇 줄씩 볼지는 고르실 수 있게 한다. (대표님 지시 2026-10-29)
+   ═══════════════════════════════════════════════════════════ */
+
+/** 쪽을 옮기면 맨 위로 — 아래쪽 단추를 누르면 표 가운데가 보여 어디인지 알기 어렵다 */
+function toTop() { try { window.scrollTo(0, 0); } catch (e) {} }
+
+/** 고를 수 있는 크기 */
+const PAGE_SIZES = [['10', '10개씩'], ['20', '20개씩'], ['all', '전체 보기']];
+
+/** 'all' 이면 그대로, 아니면 숫자로 */
+function pageSize(v) { return v === 'all' ? 'all' : (parseInt(v, 10) || 10); }
+
+/** 몇 쪽까지 있는가 */
+function pageCount(total, size) {
+  return size === 'all' ? 1 : Math.max(1, Math.ceil((total || 0) / size));
+}
+
+/** 지금 쪽에 해당하는 줄만 잘라 준다 */
+function pageSlice(rows, size, page) {
+  if (size === 'all') return rows;
+  const p = Math.min(Math.max(1, page || 1), pageCount(rows.length, size));
+  return rows.slice((p - 1) * size, p * size);
+}
+
+/**
+ * 몇 줄씩 볼지 고르는 칸 + 쪽 넘기기.
+ *
+ * @param o.size   지금 크기 (숫자 또는 'all')
+ * @param o.page   지금 쪽
+ * @param o.total  전부 몇 줄인지
+ * @param o.onSize 크기를 바꿀 때 부를 함수 이름 (글자, 값 하나를 받는다)
+ * @param o.onPage 쪽을 옮길 때 부를 함수 이름 (글자, 쪽 번호를 받는다)
+ */
+function pagerBar(o) {
+  const size = o.size, total = o.total || 0;
+  const pages = pageCount(total, size);
+  const page = Math.min(Math.max(1, o.page || 1), pages);
+  const from = total ? (size === 'all' ? 1 : (page - 1) * size + 1) : 0;
+  const to = size === 'all' ? total : Math.min(page * size, total);
+
+  /* 쪽이 많으면 지금 쪽 둘레만 보여준다 (일곱 개까지) */
+  const nums = [];
+  if (pages > 1) {
+    let a = Math.max(1, page - 3), b = Math.min(pages, a + 6);
+    a = Math.max(1, b - 6);
+    for (let i = a; i <= b; i++) nums.push(i);
+  }
+  const btn = (label, to2, cls) =>
+    '<button type="button" class="pg-b' + (cls ? ' ' + cls : '') + '"'
+    + (to2 === null ? ' disabled' : ' onclick="' + o.onPage + '(' + to2 + ')"')
+    + '>' + label + '</button>';
+
+  return '<div class="pager">'
+    + '<select class="form-select pg-size" onchange="' + o.onSize + '(this.value)">'
+    +   PAGE_SIZES.map(function (x) {
+          return '<option value="' + x[0] + '"' + (String(size) === x[0] ? ' selected' : '') + '>'
+            + x[1] + '</option>';
+        }).join('')
+    + '</select>'
+    + '<span class="pg-info">' + (total
+        ? formatNumber(from) + '–' + formatNumber(to) + ' / <b>' + formatNumber(total) + '</b>건'
+        : '0건') + '</span>'
+    + (pages > 1
+        ? '<div class="pg-btns">'
+          + btn('‹', page > 1 ? page - 1 : null)
+          + nums.map(function (n) {
+              return btn(String(n), n === page ? null : n, n === page ? 'on' : '');
+            }).join('')
+          + btn('›', page < pages ? page + 1 : null)
+          + '</div>'
+        : '')
+    + '</div>';
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1388,6 +1462,30 @@ async function renderDashboard() {
       '  </div>',
       '</div>',
 
+      /*
+       * 교육진행 — 누가 며칠 다녀왔는지.
+       * 위 카드에도 적히지만 좁아서 읽기 어렵다는 말씀이 있어
+       * 한 줄씩 넉넉히 펴 둔다. (대표님 지시 2026-10-29)
+       */
+      '<div class="dash-grid">',
+      '  <div class="chart-card">',
+      '    <h3>' + icon('visit', 18) + ' 교육진행 — 진행자별'
+      + '<span class="hint">' + esc(periodLabel) + ' · 모두 '
+      + formatNumber((data.visits || {}).days || 0) + '일</span></h3>',
+      (((data.visits || {}).byPerson || []).length === 0
+        ? '<div class="empty-state" style="padding:1.5rem"><p>이 기간에 다녀온 기록이 없습니다.</p></div>'
+        : '<div class="rank vrank">'
+          + (data.visits.byPerson || []).map(function (p) {
+              return '<div class="rank-row" style="cursor:pointer" onclick="navigate(\'visits\')">'
+                + '<span class="nm">' + esc(p.name) + '</span>'
+                + '<span class="ct">' + formatNumber(p.projects) + '개 과정</span>'
+                + '<span class="vl"><b>' + formatNumber(p.days) + '</b>일</span>'
+                + '</div>';
+            }).join('')
+          + '</div>'),
+      '  </div>',
+      '</div>',
+
       // ── 담당자별 · 고객사 · 구분 ──
       '<div class="dash-grid three">',
       '  <div class="chart-card">',
@@ -1669,7 +1767,7 @@ async function renderVisits() {
 
   content.innerHTML = [
     '<div class="page-header"><div><h2>교육진행</h2>',
-    '  <div class="subtitle">실제로 현장에 다녀온 날을 적어 둡니다. 과정에 적은 교육일정과 달라도 됩니다.</div></div></div>',
+    '  <div class="subtitle">실제로 진행한 날을 적어 둡니다. 과정에 적은 교육일정과 달라도 됩니다.</div></div></div>',
 
     '<div class="list-total">',
     '  <span class="cnt"><b>' + formatNumber(t.done || 0) + '</b>개 과정</span>',
@@ -1703,7 +1801,7 @@ async function renderVisits() {
         '<thead><tr>',
         '  <th class="th-mid">회사</th><th>고객사</th><th>과정명</th>',
         '  <th>교육일정 <em class="th-sub">(하기로 한 날)</em></th>',
-        '  <th>다녀온 날</th><th class="th-mid">진행일수</th><th class="th-mid">다녀온 사람</th><th>메모</th><th class="th-mid"></th>',
+        '  <th>진행날짜</th><th class="th-mid">진행일수</th><th class="th-mid">진행자</th><th>메모</th><th class="th-mid"></th>',
         '</tr></thead><tbody>',
         VISIT.rows.map(visitRow).join(''),
         '</tbody></table></div>'
@@ -1813,10 +1911,16 @@ function openVisitEditor(projectId, keep) {
   tr.innerHTML = '<td colspan="9">'
     + '<div class="v-editor">'
     + '  <div class="v-ed-head"><b>' + esc(r.course_name || '') + '</b>'
-    +      '<span class="v-ed-sub">' + esc(r.client_name || '') + '</span>'
-    // 지금 로그인한 사람 이름으로 적힌다 — 저장하기 전에 알 수 있게
-    +      whoPicker() + '</div>'
+    +      '<span class="v-ed-sub">' + esc(r.client_name || '') + '</span></div>'
     + '  <div class="rline sched-line">'
+    /*
+     * 진행자를 맨 앞에, 일정 유형과 같은 크기로 둔다.
+     * 전에는 머리줄 오른쪽 끝에 작게 붙어 있어 잘 안 보였다.
+     * (대표님 지시 2026-10-29)
+     */
+    + '    <div class="rf rf-pick"><span class="cap">진행자</span>'
+    +      whoPicker()
+    + '    </div>'
     + '    <div class="rf rf-pick"><span class="cap">일정 유형</span>'
     + '      <select id="p-schedule-type" class="form-select" onchange="updateDateUI()">'
     + ['당일', '기간', '차수'].map(function (x) {
@@ -1859,17 +1963,20 @@ function openVisitEditor(projectId, keep) {
  */
 function whoPicker() {
   const people = VISIT.people || [];
+  /*
+   * 직원에게는 고를 목록을 안 준다 — 늘 본인 이름으로 적힌다.
+   * 그래도 누구 이름으로 적히는지는 보여 드려야 한다.
+   */
   if (!people.length) {
-    return '<span class="v-ed-who">다녀온 사람 <b>' + esc(myName()) + '</b></span>';
+    return '<div class="form-select v-who-fixed">' + esc(myName()) + '</div>';
   }
   const cur = VISIT._who || myKey();
-  return '<span class="v-ed-who">다녀온 사람'
-    + '<select id="v-who" class="form-select" onchange="VISIT._who = this.value">'
+  return '<select id="v-who" class="form-select" onchange="VISIT._who = this.value">'
     + people.map(function (p) {
         return '<option value="' + esc(p.key) + '"' + (p.key === cur ? ' selected' : '') + '>'
           + esc(p.name) + '</option>';
       }).join('')
-    + '</select></span>';
+    + '</select>';
 }
 
 function closeVisitEditor(clear) {
@@ -1882,7 +1989,7 @@ async function saveVisit(projectId) {
   const type = scheduleType();
   const dates = curDates(type).filter(function (r) { return r && r.s; })
     .map(function (r) { return { s: r.s, e: r.e || r.s }; });
-  if (!dates.length) return showToast('다녀온 날을 하나 이상 골라주세요.', 'warning');
+  if (!dates.length) return showToast('진행날짜를 하나 이상 골라주세요.', 'warning');
 
   try {
     const res = await API.put('/visits/' + projectId, {
@@ -1932,6 +2039,8 @@ const LIST = {
    * 서버도 같은 기본값을 쓴다 (Projects.gs 의 SORTS.date_desc).
    */
   q: '', month: '', manager: '', type: '', sort: 'date_desc',
+  /* 몇 줄씩 · 몇 쪽 (대표님 지시 2026-10-29) */
+  size: 10, page: 1,
   // 매입이 하나도 없는 과정만 보기 (대시보드 경고에서 넘어올 때)
   missing_expense: '',
   /*
@@ -1950,6 +2059,7 @@ const LIST = {
 function showMissingExpense() {
   LIST.missing_expense = '1';
   LIST.include_checked = '';
+  LIST.page = 1;
   // 다른 조건이 걸려 있으면 안 보일 수 있으니 함께 푼다
   LIST.q = '';
   LIST.month = '';
@@ -1967,13 +2077,26 @@ function showMissingExpense() {
 function clearMissingExpense() {
   LIST.missing_expense = '';
   LIST.include_checked = '';
+  LIST.page = 1;
   renderProjectList();
 }
 
 /** 확인해 둔 건을 함께 볼지 / 다시 숨길지 (되돌리시려면 함께 보셔야 한다) */
 function toggleCheckedRows() {
   LIST.include_checked = LIST.include_checked ? '' : '1';
+  LIST.page = 1;
   renderProjectList();
+}
+
+/** 지금 조건 — 미리 받아 두는 쪽과 그리는 쪽이 같아야 한다 */
+function listQuery() {
+  return {
+    q: LIST.q, month: LIST.month, manager: LIST.manager,
+    type: LIST.type, sort: LIST.sort, company: LIST.company,
+    missing_expense: LIST.missing_expense, include_checked: LIST.include_checked,
+    /* 전체 보기는 넉넉한 수로 — 서버는 limit 만큼 잘라서 준다 */
+    page: LIST.page, limit: (LIST.size === 'all' ? 100000 : LIST.size)
+  };
 }
 
 async function renderProjectList() {
@@ -1990,11 +2113,7 @@ async function renderProjectList() {
 
   let data;
   try {
-    data = await API.getProjects({
-      q: LIST.q, month: LIST.month, manager: LIST.manager,
-      type: LIST.type, sort: LIST.sort, company: LIST.company,
-      missing_expense: LIST.missing_expense, include_checked: LIST.include_checked
-    });
+    data = await API.getProjects(listQuery());
   } catch (e) { showToast(e.message, 'error'); return; }
 
   const t = data.totals || {};
@@ -2142,16 +2261,27 @@ async function renderProjectList() {
                 ? '<span class="unpaid-badge">' + formatNumber(p.unpaid_amount) + '</span>'
                 : (p.issue_date
                     ? '<span style="color:var(--success); font-size:0.8rem">완료</span>'
-                    : '<span class="unissued-badge">미발행</span>'))
+                    : '<span class="unissued">미발행</span>'))
             + '</td>'
             + (showCheck ? '<td class="c-mid">' + expenseCheckCell(p) + '</td>' : '')
             + '</tr>';
         }).join(''),
         '    </tbody></table>',
-        '</div>'
+        '</div>',
+        /* 열 줄이 넘으면 넘겨 본다 (대표님 지시 2026-10-29) */
+        pagerBar({
+          size: LIST.size, page: LIST.page,
+          total: (data.pagination || {}).total || data.projects.length,
+          onSize: 'setListSize', onPage: 'goListPage'
+        })
       ].join(''))
   ].join('');
 }
+
+/** 몇 줄씩 볼지 */
+function setListSize(v) { LIST.size = pageSize(v); LIST.page = 1; renderProjectList(); }
+/** 몇 쪽을 볼지 */
+function goListPage(n) { LIST.page = n; renderProjectList(); toTop(); }
 
 /*
  * 매입 누락 경고를 「한 건씩」 확인함으로 표시하는 칸.
@@ -2185,11 +2315,13 @@ async function setExpenseCheck(id, on) {
 
 function setListFilter(key, value) {
   LIST[key] = value;
+  LIST.page = 1;              // 조건이 바뀌면 첫 쪽부터
   renderProjectList();
 }
 
 function resetListFilter() {
   LIST.q = ''; LIST.month = ''; LIST.manager = ''; LIST.type = ''; LIST.sort = 'date_desc'; LIST.company = '';
+  LIST.page = 1;
   renderProjectList();
 }
 
@@ -2197,6 +2329,7 @@ function resetListFilter() {
 let listSearchTimer = null;
 function onListSearch(v) {
   LIST.q = v;
+  LIST.page = 1;              // 찾으시면 첫 쪽부터
   clearTimeout(listSearchTimer);
   listSearchTimer = setTimeout(function () {
     searchRedraw('lf-q', function () { return LIST.q; }, renderProjectList);
@@ -5443,9 +5576,16 @@ async function userResetPwSave(id) {
    ═══════════════════════════════════════════════════════════ */
 
 const AN = {
-  year: '', month: '', manager: '', sales_rep: '', client_id: '', type: '', company: '', basis: 'start'
+  year: '', month: '', manager: '', sales_rep: '', client_id: '', type: '', company: '', basis: 'start',
+  /* 고객사별은 수가 많아 쪽을 나눠 본다 (대표님 지시 2026-10-29) */
+  csize: 10, cpage: 1
 };
 let AN_DATA = null;
+
+/** 고객사별 — 몇 줄씩 볼지 */
+function setAnClientSize(v) { AN.csize = pageSize(v); AN.cpage = 1; renderAnalytics(); }
+/** 고객사별 — 몇 쪽을 볼지 */
+function goAnClientPage(n) { AN.cpage = n; renderAnalytics(); }
 
 /** 이익률 색 */
 function anMarginClass(v) {
@@ -5484,12 +5624,18 @@ function anTotalRow(rows, label, colspan) {
     + '</tr>';
 }
 
-/** 매출/매입/이익 표 한 덩어리 */
-function anProfitTable(title, hint, rows, firstCol) {
+/**
+ * 매출/매입/이익 표 한 덩어리.
+ *
+ * @param pager 쪽을 나눠 볼 표면 { size, page, onSize, onPage } 를 준다.
+ *              합계 줄은 **전부**를 셈한다 — 한 쪽만 더하면 숫자가 달라진다.
+ */
+function anProfitTable(title, hint, rows, firstCol, pager) {
   if (!rows || rows.length === 0) {
     return '<div class="an-sec"><h3>' + title + '</h3>'
       + '<div class="an-empty">해당 기간에 자료가 없습니다.</div></div>';
   }
+  const shown = pager ? pageSlice(rows, pager.size, pager.page) : rows;
   return '<div class="an-sec">'
     + '<h3>' + title + (hint ? '<em>' + hint + '</em>' : '') + '</h3>'
     + '<div class="table-container"><table class="data-table an-table">'
@@ -5498,9 +5644,14 @@ function anProfitTable(title, hint, rows, firstCol) {
     +   '<th class="th-num">매출</th><th class="th-num">매입</th>'
     +   '<th class="th-num">이익</th><th class="th-mid">이익률</th>'
     + '</tr></thead><tbody>'
-    + rows.map(r => anProfitRow(esc(r.name), r)).join('')
+    + shown.map(r => anProfitRow(esc(r.name), r)).join('')
     + anTotalRow(rows)
-    + '</tbody></table></div></div>';
+    + '</tbody></table></div>'
+    + (pager ? pagerBar({
+        size: pager.size, page: pager.page, total: rows.length,
+        onSize: pager.onSize, onPage: pager.onPage
+      }) : '')
+    + '</div>';
 }
 
 /** 매입 명단 표 (강사별 · 협력사별) */
@@ -5700,7 +5851,10 @@ async function renderAnalytics() {
     '</div>',
 
     /* ── 고객사별 ── */
-    anProfitTable('고객사별', '매출 많은 순', d.byClient, '고객사'),
+    /* 고객사는 수가 많아 쪽을 나눈다 (대표님 지시 2026-10-29) */
+    anProfitTable('고객사별', '매출 많은 순', d.byClient, '고객사', {
+      size: AN.csize, page: AN.cpage, onSize: 'setAnClientSize', onPage: 'goAnClientPage'
+    }),
 
     /* ── 담당자 · 영업 나란히 ── */
     '<div class="an-two">',
@@ -5823,6 +5977,7 @@ async function renderAnalytics() {
 
 function setAn(key, value) {
   AN[key] = value;
+  AN.cpage = 1;              // 조건이 바뀌면 첫 쪽부터
   renderAnalytics();
 }
 
@@ -6128,6 +6283,8 @@ const ENT_DEFS = {
 const ENT = {
   kind: 'client', tab: '실적', year: '', month: '', q: '', tax: '',
   sort: 'amount',          // 기본은 금액 많은 순
+  /* 몇 줄씩 · 몇 쪽 (대표님 지시 2026-10-29) */
+  size: 10, page: 1,
   open: null, detail: null
 };
 
@@ -6179,6 +6336,7 @@ async function renderEntity(kind) {
   if (kind && kind !== ENT.kind) {
     ENT.kind = kind; ENT.open = null; ENT.detail = null;
     ENT.q = ''; ENT.tax = ''; ENT.tab = '실적'; ENT.sort = 'amount';
+    ENT.page = 1;
   }
   const def = ENT_DEFS[ENT.kind];
   const content = document.getElementById('main-content');
@@ -6248,9 +6406,19 @@ async function renderEntity(kind) {
 
     (rows.length === 0
       ? '<div class="empty-state" style="padding:3rem"><p>해당 기간에 자료가 없습니다.</p></div>'
-      : (def.mode === 'profit' ? entProfitTable(rows, def) : entExpenseTable(rows, def)))
+      : (def.mode === 'profit' ? entProfitTable(rows, def) : entExpenseTable(rows, def))
+        /* 열 줄이 넘으면 넘겨 본다 (대표님 지시 2026-10-29) */
+        + pagerBar({
+            size: ENT.size, page: ENT.page, total: rows.length,
+            onSize: 'setEntSize', onPage: 'goEntPage'
+          }))
   ].join('');
 }
+
+/** 몇 줄씩 볼지 */
+function setEntSize(v) { ENT.size = pageSize(v); ENT.page = 1; renderEntity(); }
+/** 몇 쪽을 볼지 */
+function goEntPage(n) { ENT.page = n; renderEntity(); toTop(); }
 
 /** 제목 + 탭 */
 function entHeader(def) {
@@ -6273,11 +6441,13 @@ function entHeader(def) {
 function entProfitTable(rows, def) {
   const sum = (k) => rows.reduce((a, r) => a + (r[k] || 0), 0);
   const sales = sum('sales'), profit = sum('profit');
+  /* 줄은 지금 쪽만, 합계는 전부 — 한 쪽만 더하면 숫자가 달라진다 */
+  const shown = pageSlice(rows, ENT.size, ENT.page);
   return '<div class="table-container"><table class="data-table an-table">'
     + '<thead><tr><th style="width:2rem"></th><th>' + esc(def.first) + '</th>'
     +   '<th class="th-mid">과정수</th><th class="th-num">매출</th><th class="th-num">매입</th>'
     +   '<th class="th-num">이익</th><th class="th-mid">이익률</th></tr></thead><tbody>'
-    + rows.map(r => entRow(r, def, [
+    + shown.map(r => entRow(r, def, [
       '<td class="c-mid">' + formatNumber(r.count || 0) + '</td>',
       '<td class="amount-cell amount-positive">' + formatNumber(r.sales || 0) + '</td>',
       '<td class="amount-cell amount-negative">' + formatNumber(r.expenses || 0) + '</td>',
@@ -6299,6 +6469,7 @@ function entProfitTable(rows, def) {
 function entExpenseTable(rows, def) {
   const sum = (k) => rows.reduce((a, r) => a + (r[k] || 0), 0);
   const cols = 6 + (def.hours ? 1 : 0) + 1;
+  const shown = pageSlice(rows, ENT.size, ENT.page);
   return '<div class="table-container"><table class="data-table an-table">'
     + '<thead><tr><th style="width:2rem"></th><th>' + esc(def.first) + '</th>'
     +   (def.mode === 'expense' && def.anKey !== 'byCard' ? '<th>소속</th>' : '')
@@ -6306,7 +6477,7 @@ function entExpenseTable(rows, def) {
     +   (def.hours ? '<th class="th-mid">시간</th>' : '')
     +   '<th class="th-num">매입 총액</th><th class="th-num">세금</th><th class="th-num">실지급액</th>'
     + '</tr></thead><tbody>'
-    + rows.map(r => entRow(r, def, [
+    + shown.map(r => entRow(r, def, [
       (def.anKey !== 'byCard' ? '<td class="an-sub">' + esc(r.affiliation || '-') + '</td>' : ''),
       '<td class="c-mid">' + formatNumber(r.project_count || 0) + '</td>',
       '<td class="c-mid">' + formatNumber(r.count || 0) + '</td>',
@@ -6431,13 +6602,15 @@ function entTaxBar(rows) {
     + '</div>';
 }
 
-function setEnt(k, v) { ENT[k] = v; ENT.open = null; ENT.detail = null; renderEntity(); }
+/* 조건이 바뀌면 첫 쪽부터 — 세 쪽째를 보다 해를 바꾸면 빈 화면이 된다 */
+function setEnt(k, v) { ENT[k] = v; ENT.page = 1; ENT.open = null; ENT.detail = null; renderEntity(); }
 function resetEnt() { ENT.month = ''; ENT.q = ''; ENT.tax = ''; ENT.open = null; ENT.detail = null; renderEntity(); }
 function setEntTab(t) { ENT.tab = t; renderEntity(); }
 
 let entSearchTimer = null;
 function onEntSearch(v) {
   ENT.q = v;
+  ENT.page = 1;               // 찾으시면 첫 쪽부터
   clearTimeout(entSearchTimer);
   entSearchTimer = setTimeout(function () {
     searchRedraw('ent-q', function () { return ENT.q; }, renderEntity);
@@ -7971,7 +8144,7 @@ async function renderOpCosts() {
     '<div class="stats-grid" style="margin-bottom:1rem">',
     opStat('과정', formatNumber(t.count || 0) + '건',
       formatNumber(t.filled || 0) + '건에 적으셨습니다'),
-    opStat('교재비', formatNumber(t.book || 0) + '원', '인쇄업체에 드린 돈'),
+    opStat('교재비', formatNumber(t.book || 0) + '원', '교재인쇄 및 배송'),
     opStat('문구류 · 간식비', formatNumber(t.supply || 0) + '원', '계산서 · 카드'),
     opStat('기타', formatNumber(t.etc || 0) + '원', '버스비 · 현수막 등'),
     '</div>',
@@ -8014,7 +8187,10 @@ function opProjectRow(r) {
 
   const row = '<tr class="op-proj' + (open ? ' on' : '') + '"'
     + ' onclick="openOpProject(' + r.project_id + ')">'
-    + '<td class="op-course">' + esc(r.course_name || '-') + '</td>'
+    /* 과정 목록처럼 어느 회사 것인지 먼저 보여준다 (대표님 지시 2026-10-29) */
+    + '<td class="op-course"><span class="co-tag'
+    +   ((r.company || '혜움컨설팅') === '그로우인' ? ' sub' : '') + '">'
+    +   esc(r.company || '혜움컨설팅') + '</span>' + esc(r.course_name || '-') + '</td>'
     + '<td>' + esc(r.client_name || '-') + '</td>'
     /* 차수가 여럿이면 「2026-10-05 외 2차수」 — 서버가 줄여서 준다 */
     + '<td class="op-date">' + esc(r.schedule || '-') + '</td>'

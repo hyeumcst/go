@@ -905,10 +905,40 @@ html { font-size: 16px; }
 .unpaid-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px;
   background: var(--danger-bg); color: var(--danger); font-weight: 700;
   font-size: 0.82rem; font-variant-numeric: tabular-nums; }
-/* 아직 계산서가 안 나간 건 — 「완료」 와 헷갈리면 안 되므로 색을 달리한다 */
-.unissued-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px;
-  background: var(--warning-bg); color: var(--warning); font-weight: 700;
-  font-size: 0.8rem; white-space: nowrap; }
+/*
+ * 아직 계산서가 안 나간 건.
+ * 「완료」 처럼 글씨만 — 동그란 바탕은 뺐다. 색으로만 가른다.
+ * (대표님 지시 2026-10-29)
+ */
+.unissued { color: #7C3AED; font-size: 0.8rem; font-weight: 700; white-space: nowrap; }
+:root[data-theme="dark"] .unissued { color: #A78BFA; }
+
+/* 대시보드 — 진행자별 교육진행 */
+.vrank .rank-row .vl b { font-size: 1.05rem; color: var(--accent); }
+.vrank .rank-row .ct { color: var(--text-secondary); }
+
+/* ── 쪽 나누기 ── */
+.pager {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  margin-top: 0.85rem;
+}
+.pager .pg-size { width: 7.5rem; flex: none; }
+.pager .pg-info { font-size: 0.85rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.pager .pg-info b { color: var(--text-primary); }
+.pager .pg-btns { display: flex; gap: 0.2rem; margin-left: auto; }
+.pager .pg-b {
+  min-width: 2rem; padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border); background: var(--bg-input);
+  color: var(--text-secondary); border-radius: var(--radius-sm);
+  font-family: inherit; font-size: 0.85rem; font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.pager .pg-b:hover:not([disabled]) { border-color: var(--accent); color: var(--accent); }
+.pager .pg-b.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.pager .pg-b[disabled] { opacity: 0.35; cursor: default; }
+@media (max-width: 640px) {
+  .pager .pg-btns { margin-left: 0; width: 100%; }
+}
 
 /* ═══════════ 고객사 담당자 선택 ═══════════ */
 .contact-picker { display: grid; grid-template-columns: 1fr auto auto; gap: 0.4rem; align-items: stretch; }
@@ -2631,9 +2661,16 @@ tr.v-done td { background: var(--success-bg); }
 }
 .who-chip b { color: var(--text-primary); font-weight: 700; }
 .who-tag { font-weight: 600; color: var(--text-primary); }
-.v-ed-who { margin-left: auto; font-size: 0.78rem; color: var(--text-muted); }
-.v-ed-who b { color: var(--accent); }
 .v-ed-head { display: flex; align-items: baseline; }
+/*
+ * 고를 목록이 없을 때(직원) 보여주는 제 이름 — 고르는 칸과 같은 모양으로.
+ * 자리가 들쭉날쭉하면 「왜 나는 못 고르지」 보다 「칸이 없네」 로 읽힌다.
+ */
+.v-who-fixed {
+  display: flex; align-items: center;
+  color: var(--text-secondary); background: var(--bg-secondary);
+  cursor: default;
+}
 /* 대시보드 카드 안의 사람별 줄 */
 .stat-sub .who-row { display: flex; gap: 0.35rem; }
 .stat-sub .who-row b { color: var(--text-secondary); font-weight: 700; }

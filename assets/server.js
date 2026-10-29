@@ -4885,6 +4885,7 @@ function opCostsList(u, q) {
     var sales = opSalesOf_(p.id);
     return {
       project_id: p.id,
+      company: p.company || DEFAULT_COMPANY,   /* 과정 목록처럼 회사를 함께 보여준다 */
       course_name: p.course_name || '',
       client_name: p.client_id ? (clientName[p.client_id] || '') : '',
       schedule: opScheduleText_(p),
