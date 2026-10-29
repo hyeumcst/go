@@ -917,6 +917,39 @@ html { font-size: 16px; }
 .vrank .rank-row .vl b { font-size: 1.05rem; color: var(--accent); }
 .vrank .rank-row .ct { color: var(--text-secondary); }
 
+/*
+ * ── 칸 너비를 못 박는다 ──
+ *
+ * 전에는 브라우저가 **그 쪽에 담긴 글자**를 보고 칸 너비를 정했다.
+ * 그래서 고객사 이름이 조금만 길어지면 과정수·매출이 통째로 오른쪽으로
+ * 밀리고, 쪽을 넘길 때마다 숫자 자리가 흔들렸다. 옆에 빈 자리가
+ * 넉넉한데도 그랬다. (대표님 지시 2026-10-29)
+ *
+ * 이제 머리글에 적어 둔 너비대로 고정한다. 남는 자리는 이름 칸이
+ * 가져가므로, 이름이 길든 짧든 숫자는 늘 같은 자리에 선다.
+ */
+.an-table { table-layout: fixed; width: 100%; }
+.an-table th.th-num { width: 9.5rem; }
+.an-table th.th-mid { width: 6rem; }
+.an-table th, .an-table td { overflow: hidden; text-overflow: ellipsis; }
+.an-table .an-name { white-space: nowrap; }
+
+/* 과정 목록도 같은 까닭으로 — 쪽을 넘겨도 자리가 안 흔들리게 */
+.proj-table { table-layout: fixed; width: 100%; }
+.proj-table th.th-mid  { width: 6rem; }
+.proj-table th.th-client { width: 10rem; }
+.proj-table th.th-type { width: 5rem; }
+.proj-table th.th-sched { width: 11rem; }
+.proj-table th.th-mgr  { width: 6rem; }
+.proj-table th.th-issue { width: 7rem; }
+.proj-table th.th-num  { width: 9rem; }
+.proj-table th, .proj-table td { overflow: hidden; text-overflow: ellipsis; }
+
+@media (max-width: 1100px) {
+  /* 좁은 화면에서는 가로로 밀어 보는 편이 낫다 */
+  .an-table, .proj-table { table-layout: auto; width: auto; min-width: 100%; }
+}
+
 /* ── 쪽 나누기 ── */
 .pager {
   display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
@@ -2912,6 +2945,26 @@ tr.v-done td { background: var(--success-bg); }
   background: var(--info-bg); border: 1px solid rgba(59,130,246,0.2);
   border-radius: var(--radius-sm); padding: 0.5rem 0.8rem; margin-bottom: 1rem;
 }
+/*
+ * 과정명을 가지런히.
+ *
+ * 과정 목록은 회사가 따로 한 칸이라 과정명이 늘 같은 자리에서 시작한다.
+ * 운영비 관리는 한 칸에 같이 들어 있어서, 「그로우인」 처럼 짧은 꼬리표가
+ * 붙은 줄만 과정명이 왼쪽으로 당겨져 보였다.
+ * 꼬리표 폭을 못 박아 두면 뒤따르는 이름이 한 줄로 선다.
+ * (대표님 지시 2026-10-29)
+ */
+.op-table .op-course .co-tag {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 5rem; margin-right: 0.5rem; vertical-align: middle;
+}
+
+/*
+ * 운영비 관리 요약 칸 — 가운데로 모은다.
+ * 넓은 칸에서 왼쪽에만 붙어 있으면 비어 보인다. (대표님 지시 2026-10-29)
+ */
+.op-stat { justify-content: center; text-align: center; }
+
 .op-table .th-r, .op-table .td-r { text-align: right; white-space: nowrap; }
 .op-table .op-date { white-space: nowrap; color: var(--text-secondary); font-size: 0.8rem; }
 .op-table .muted { color: var(--text-muted); }

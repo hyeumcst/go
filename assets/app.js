@@ -1462,30 +1462,6 @@ async function renderDashboard() {
       '  </div>',
       '</div>',
 
-      /*
-       * 교육진행 — 누가 며칠 다녀왔는지.
-       * 위 카드에도 적히지만 좁아서 읽기 어렵다는 말씀이 있어
-       * 한 줄씩 넉넉히 펴 둔다. (대표님 지시 2026-10-29)
-       */
-      '<div class="dash-grid">',
-      '  <div class="chart-card">',
-      '    <h3>' + icon('visit', 18) + ' 교육진행 — 진행자별'
-      + '<span class="hint">' + esc(periodLabel) + ' · 모두 '
-      + formatNumber((data.visits || {}).days || 0) + '일</span></h3>',
-      (((data.visits || {}).byPerson || []).length === 0
-        ? '<div class="empty-state" style="padding:1.5rem"><p>이 기간에 다녀온 기록이 없습니다.</p></div>'
-        : '<div class="rank vrank">'
-          + (data.visits.byPerson || []).map(function (p) {
-              return '<div class="rank-row" style="cursor:pointer" onclick="navigate(\'visits\')">'
-                + '<span class="nm">' + esc(p.name) + '</span>'
-                + '<span class="ct">' + formatNumber(p.projects) + '개 과정</span>'
-                + '<span class="vl"><b>' + formatNumber(p.days) + '</b>일</span>'
-                + '</div>';
-            }).join('')
-          + '</div>'),
-      '  </div>',
-      '</div>',
-
       // ── 담당자별 · 고객사 · 구분 ──
       '<div class="dash-grid three">',
       '  <div class="chart-card">',
@@ -1588,6 +1564,32 @@ async function renderDashboard() {
             + '<span class="vl">' + formatNumber(p.total_sales) + '</span>'
             + '</div>';
         }).join('') + '</div>'),
+      '  </div>',
+      '</div>',
+
+      /*
+       * 교육진행 — 누가 며칠 다녀왔는지.
+       * 위 카드에도 적히지만 좁아서 읽기 어렵다는 말씀이 있어
+       * 한 줄씩 넉넉히 편다.
+       * 맨 아래에 둔다 — 돈 이야기 가운데 끼어 있으면 흐름이 끊긴다.
+       * (대표님 지시 2026-10-29)
+       */
+      '<div class="dash-grid">',
+      '  <div class="chart-card">',
+      '    <h3>' + icon('visit', 18) + ' 교육진행 — 진행자별'
+      + '<span class="hint">' + esc(periodLabel) + ' · 모두 '
+      + formatNumber((data.visits || {}).days || 0) + '일</span></h3>',
+      (((data.visits || {}).byPerson || []).length === 0
+        ? '<div class="empty-state" style="padding:1.5rem"><p>이 기간에 다녀온 기록이 없습니다.</p></div>'
+        : '<div class="rank vrank">'
+          + (data.visits.byPerson || []).map(function (p) {
+              return '<div class="rank-row" style="cursor:pointer" onclick="navigate(\'visits\')">'
+                + '<span class="nm">' + esc(p.name) + '</span>'
+                + '<span class="ct">' + formatNumber(p.projects) + '개 과정</span>'
+                + '<span class="vl"><b>' + formatNumber(p.days) + '</b>일</span>'
+                + '</div>';
+            }).join('')
+          + '</div>'),
       '  </div>',
       '</div>'
     ].join('');
@@ -2226,12 +2228,14 @@ async function renderProjectList() {
       ? '<div class="empty-state" style="padding:3rem"><p>조건에 맞는 과정이 없습니다.</p></div>'
       : [
         '<div class="table-container">',
-        '  <table class="data-table">',
+        /* 칸 너비를 못 박아 둔다 — 쪽을 넘길 때마다 숫자 자리가 흔들리면 안 된다 */
+        '  <table class="data-table proj-table">',
         '    <thead><tr>',
-        '      <th class="th-mid">회사</th><th>고객사</th><th>구분</th><th>과정명</th><th>교육일정</th><th>담당자</th>',
+        '      <th class="th-mid">회사</th><th class="th-client">고객사</th><th class="th-type">구분</th>'
+      + '<th>과정명</th><th class="th-sched">교육일정</th><th class="th-mgr">담당자</th>',
         '      <th class="th-num">총 매출<span class="th-sub">(부가세 별도)</span></th>'
       + '<th class="th-num">총 매입</th><th class="th-num">이익</th>',
-        '      <th>발행일</th><th class="th-num">미수금<span class="th-sub">(부가세 포함)</span></th>'
+        '      <th class="th-issue">발행일</th><th class="th-num">미수금<span class="th-sub">(부가세 포함)</span></th>'
       + (showCheck ? '<th class="th-mid">확인</th>' : ''),
         '    </tr></thead><tbody>',
         data.projects.map(function (p) {
@@ -8173,7 +8177,7 @@ async function renderOpCosts() {
 }
 
 function opStat(label, value, hint, kind) {
-  return '<div class="stat-card' + (kind ? ' ' + kind : '') + '">'
+  return '<div class="stat-card op-stat' + (kind ? ' ' + kind : '') + '">'
     + '<div class="stat-label">' + esc(label) + '</div>'
     + '<div class="stat-value">' + value + '</div>'
     + '<div class="stat-hint">' + esc(hint || '') + '</div></div>';
