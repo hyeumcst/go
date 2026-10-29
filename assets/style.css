@@ -2977,18 +2977,10 @@ tr.v-done td { background: var(--success-bg); }
   border-radius: var(--radius-sm); padding: 0.5rem 0.8rem; margin-bottom: 1rem;
 }
 /*
- * 과정명을 가지런히.
- *
- * 과정 목록은 회사가 따로 한 칸이라 과정명이 늘 같은 자리에서 시작한다.
- * 운영비 관리는 한 칸에 같이 들어 있어서, 「그로우인」 처럼 짧은 꼬리표가
- * 붙은 줄만 과정명이 왼쪽으로 당겨져 보였다.
- * 꼬리표 폭을 못 박아 두면 뒤따르는 이름이 한 줄로 선다.
- * (대표님 지시 2026-10-29)
+ * 회사는 과정 목록처럼 **따로 한 칸**으로 뺐다 (대표님 지시 2026-10-29).
+ * 한 칸에 같이 두었을 때는 꼬리표 폭을 못 박아 과정명을 맞췄는데,
+ * 칸을 나누니 그럴 까닭이 없어졌다.
  */
-.op-table .op-course .co-tag {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 5rem; margin-right: 0.5rem; vertical-align: middle;
-}
 
 /*
  * 운영비 관리 요약 칸 — 가운데로 모은다.

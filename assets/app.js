@@ -8234,14 +8234,15 @@ async function renderOpCosts() {
     '<div class="table-container">',
     '  <table class="data-table op-table">',
     '    <thead><tr>',
-    '      <th>과정명</th><th>고객사</th><th>교육일</th>',
+    /* 과정 목록처럼 회사를 따로 한 칸으로 (대표님 지시 2026-10-29) */
+    '      <th class="th-mid">회사</th><th>과정명</th><th>고객사</th><th>교육일</th>',
     '      <th class="th-r">매출 운영비</th>',
     '      <th class="th-r">교재비</th><th class="th-r">문구류·간식</th><th class="th-r">기타</th>',
     '      <th class="th-r">합계</th><th></th>',
     '    </tr></thead>',
     '    <tbody>',
     ((d.rows || []).length === 0
-      ? '<tr><td colspan="9"><div class="empty-state" style="padding:2rem"><p>'
+      ? '<tr><td colspan="10"><div class="empty-state" style="padding:2rem"><p>'
         + (OP.q ? '찾는 과정이 없습니다.'
                 : (OP.month
                     ? esc(opMonthLabel(OP.month)) + '에 교육한 과정이 없습니다.'
@@ -8272,9 +8273,10 @@ function opProjectRow(r) {
   const row = '<tr class="op-proj' + (open ? ' on' : '') + '"'
     + ' onclick="openOpProject(' + r.project_id + ')">'
     /* 과정 목록처럼 어느 회사 것인지 먼저 보여준다 (대표님 지시 2026-10-29) */
-    + '<td class="op-course"><span class="co-tag'
+    + '<td class="c-mid"><span class="co-tag'
     +   ((r.company || '혜움컨설팅') === '그로우인' ? ' sub' : '') + '">'
-    +   esc(r.company || '혜움컨설팅') + '</span>' + esc(r.course_name || '-') + '</td>'
+    +   esc(r.company || '혜움컨설팅') + '</span></td>'
+    + '<td class="op-course">' + esc(r.course_name || '-') + '</td>'
     + '<td>' + esc(r.client_name || '-') + '</td>'
     /* 차수가 여럿이면 「2026-10-05 외 2차수」 — 서버가 줄여서 준다 */
     + '<td class="op-date">' + esc(r.schedule || '-') + '</td>'
@@ -8287,7 +8289,7 @@ function opProjectRow(r) {
     + '</tr>';
 
   if (!open) return row;
-  return row + '<tr class="op-panel-row"><td colspan="9">' + opPanel(r) + '</td></tr>';
+  return row + '<tr class="op-panel-row"><td colspan="10">' + opPanel(r) + '</td></tr>';
 }
 
 /** 펼친 내용 — 탭 세 개와 그 탭의 항목 표 */
