@@ -1064,6 +1064,8 @@ function initApp() {
       if (e.currentTarget.classList.contains('nav-item')) e.currentTarget.classList.add('active');
       const route = e.currentTarget.dataset.route;
       document.getElementById('sidebar').classList.remove('open');
+      /* 과정 등록은 새 창에서 — 다른 자료를 보면서 적으실 수 있게 */
+      if (route === 'project-form') { openProject(null); return; }
       navigate(route);
     });
   });
@@ -1106,8 +1108,19 @@ function initApp() {
     showToast('화면 일부를 불러오지 못했습니다 (' + MISSING_IDS.join(', ') + ')', 'warning');
   }
 
-  // 초기 라우트
-  navigate('dashboard');
+  /*
+   * 첫 화면.
+   * 새 창으로 열렸으면 주소에 적힌 화면을 연다 (#project-form/12).
+   */
+  const want = routeFromHash();
+  if (want) {
+    document.querySelectorAll('.nav-item').forEach(function (n) { n.classList.remove('active'); });
+    const nav = document.querySelector('.nav-item[data-route="' + want.route + '"]');
+    if (nav) nav.classList.add('active');
+    navigate(want.route, want.id);
+  } else {
+    navigate('dashboard');
+  }
 }
 
 // --- 테마 (밝게 / 어둡게 / 시스템) ---
@@ -1239,6 +1252,54 @@ function watchBrandSub() {
   setTimeout(fitBrandSub, 120);
 }
 
+/* ═══════════════════════════════════════════════════════════
+   새 창으로 열기
+
+   과정 등록·수정은 다른 자료(지난 과정 · 강사 단가 · 계산서)를
+   보면서 적어야 할 때가 있다. 그래서 새 창에서 연다.
+   (대표님 지시 2026-10-29)
+
+   새 창이 혼자 그 화면을 열 수 있어야 하므로 주소 뒤에 표를 붙인다.
+     …/admin/#project-form        새 과정
+     …/admin/#project-form/12     12번 과정 고치기
+   ═══════════════════════════════════════════════════════════ */
+
+/** 그 화면으로 바로 가는 주소 */
+function routeLink(route, id) {
+  return location.pathname + location.search + '#' + route + (id ? '/' + id : '');
+}
+
+/**
+ * 새 창에서 연다.
+ * 새 창이 막혀 있으면 이 창에서라도 연다 — 눌렀는데 아무 일도
+ * 없으면 고장난 줄 아시게 된다.
+ */
+function openInNewTab(route, id) {
+  let w = null;
+  try { w = window.open(routeLink(route, id), '_blank'); } catch (e) { w = null; }
+  if (!w) navigate(route, id || null);
+}
+
+/** 과정 등록·수정은 늘 새 창에서 */
+function openProject(id) { openInNewTab('project-form', id || null); }
+
+/** 주소에 적힌 화면 (새 창으로 열렸을 때) */
+function routeFromHash() {
+  let raw = '';
+  /* 흉내 낸 화면에는 주소가 없을 수 있다 — 없으면 없는 대로 둔다 */
+  try { raw = (location && typeof location.hash === 'string') ? location.hash : ''; }
+  catch (e) { raw = ''; }
+  if (raw.charAt(0) !== '#') return null;
+  const h = raw.replace(/^#\/?/, '');
+  if (!h) return null;
+  const parts = h.split('/');
+  const route = parts[0];
+  if (!route) return null;
+  if (!canSeeRoute(API.getUser(), route)) return null;
+  const id = parts[1] ? (parseInt(parts[1], 10) || null) : null;
+  return { route: route, id: id };
+}
+
 function navigate(route, params = null) {
   const content = document.getElementById('main-content');
 
@@ -1251,6 +1312,18 @@ function navigate(route, params = null) {
       + '<p class="subtitle">이 화면은 관리자만 볼 수 있습니다.</p></div></div>';
     return;
   }
+
+  /*
+   * 새 창으로 열릴 때 붙여 둔 표는 다른 화면으로 가면 지운다.
+   * 안 지우면 그 창을 새로고침했을 때 엉뚱하게 그 화면이 다시 열린다.
+   */
+  try {
+    if (location && typeof location.hash === 'string' && location.hash
+        && location.hash.indexOf('#' + route) !== 0
+        && typeof history !== 'undefined' && history.replaceState) {
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+  } catch (e) { /* 주소를 못 고쳐도 화면은 그대로 쓴다 */ }
 
   State.currentRoute = route;
   content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
@@ -1559,7 +1632,7 @@ async function renderDashboard() {
       '    <h3>' + icon('receivable', 18) + ' 미수금 오래된 순</h3>',
       (data.receivable.list.length === 0 ? '<div class="empty-state" style="padding:1.5rem"><p>미수금이 없습니다.</p></div>'
         : '<div class="rank">' + data.receivable.list.map(function (r) {
-          return '<div class="rank-row" style="cursor:pointer" onclick="navigate(\'project-form\', ' + r.id + ')">'
+          return '<div class="rank-row" style="cursor:pointer" onclick="openProject(' + r.id + ')">'
             + '<span class="nm">' + esc(r.client_name || '-') + '</span>'
             + '<span class="ct">' + (r.issue_date || '미발행') + '</span>'
             + '<span class="vl unpaid">' + formatNumber(r.supply_amount) + '</span>'
@@ -1596,7 +1669,7 @@ async function renderDashboard() {
       '    <h3>' + icon('projects', 18) + ' 최근 등록</h3>',
       (data.recentProjects.length === 0 ? '<div class="empty-state" style="padding:1.5rem"><p>데이터가 없습니다.</p></div>'
         : '<div class="rank">' + data.recentProjects.map(function (p) {
-          return '<div class="rank-row" style="cursor:pointer" onclick="navigate(\'project-form\', ' + p.id + ')">'
+          return '<div class="rank-row" style="cursor:pointer" onclick="openProject(' + p.id + ')">'
             + '<span class="nm">' + esc(p.course_name) + '</span>'
             + '<span class="ct">' + esc(p.client_name || '-') + '</span>'
             + '<span class="vl">' + formatNumber(p.total_sales) + '</span>'
@@ -2176,7 +2249,7 @@ async function renderProjectList() {
     '<div class="page-header">',
     '  <div><h2>과정 목록</h2>',
     '    <div class="subtitle">매출·매입이 등록된 과정을 조건별로 봅니다.</div></div>',
-    '  <button class="btn btn-primary" onclick="navigate(\'project-form\')"><span class="icon">➕</span> 신규 과정 등록</button>',
+    '  <button class="btn btn-primary" onclick="openProject()"><span class="icon">➕</span> 신규 과정 등록</button>',
     '</div>',
 
     /*
@@ -2281,7 +2354,7 @@ async function renderProjectList() {
         '    </tr></thead><tbody>',
         data.projects.map(function (p) {
           const profit = (p.total_sales || 0) - (p.total_expenses || 0);
-          return '<tr style="cursor:pointer" onclick="navigate(\'project-form\', ' + p.id + ')">'
+          return '<tr style="cursor:pointer" onclick="openProject(' + p.id + ')">'
             + '<td class="c-mid"><span class="co-tag' + ((p.company || '혜움컨설팅') === '그로우인' ? ' sub' : '') + '">'
             +   esc(p.company || '혜움컨설팅') + '</span></td>'
             + '<td>' + esc(p.client_name || '-') + '</td>'
@@ -6583,7 +6656,7 @@ function entDetailBody(def) {
       + '<th class="th-num">미수금</th></tr></thead><tbody>'
       + d.rows.map(r => {
         const profit = (r.total_sales || 0) - (r.total_expenses || 0);
-        return '<tr style="cursor:pointer" onclick="event.stopPropagation(); navigate(\'project-form\', ' + r.id + ')">'
+        return '<tr style="cursor:pointer" onclick="event.stopPropagation(); openProject(' + r.id + ')">'
           + '<td class="c-mid an-sub">' + esc(scheduleLabel(r.schedule_dates)) + '</td>'
           + '<td><span class="badge badge-type">' + esc(r.type) + '</span></td>'
           + '<td style="font-weight:600">' + esc(r.course_name) + '</td>'
@@ -6602,7 +6675,7 @@ function entDetailBody(def) {
     + '<th class="th-num">총액</th><th>세율</th><th class="th-num">실지급액</th>'
     + '<th>입금일</th><th>비고</th></tr></thead><tbody>'
     + d.rows.map(r =>
-      '<tr style="cursor:pointer" onclick="event.stopPropagation(); navigate(\'project-form\', ' + r.project_id + ')">'
+      '<tr style="cursor:pointer" onclick="event.stopPropagation(); openProject(' + r.project_id + ')">'
       + '<td class="c-mid an-sub">' + esc(scheduleLabel(r.schedule_dates)) + '</td>'
       + '<td>' + esc(r.client_name || '-') + '</td>'
       + '<td style="font-weight:600">' + esc(r.course_name) + '</td>'
@@ -7056,7 +7129,7 @@ async function renderTax() {
             +   esc(v.company) + '</span></td>'
             + '<td class="c-mid" style="white-space:nowrap">' + esc(v.issue_date || '-') + '</td>'
             + '<td>' + esc(v.client_name || '-') + '</td>'
-            + '<td style="font-weight:600;cursor:pointer" onclick="navigate(\'project-form\', ' + v.project_id + ')">'
+            + '<td style="font-weight:600;cursor:pointer" onclick="openProject(' + v.project_id + ')">'
             +   esc(v.course_name) + '</td>'
             + '<td class="c-mid an-sub">' + v.seq + '</td>'
             + '<td class="amount-cell amount-positive">' + formatNumber(v.supply_amount) + '</td>'
