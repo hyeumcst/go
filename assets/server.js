@@ -2327,9 +2327,34 @@ function writeInvoices(projectId, invoices, baseAmount, vatMode, discountBase, c
       .slice(0, 16));
   };
 
+  /*
+   * 「아직 적지 않은 장」 — 발행일도, 항목도, 직접 적은 금액도 없는 장.
+   *
+   * 과정을 저장하면 계산서 한 장이 매출 전액으로 저절로 만들어진다.
+   * 그 장은 적으신 것이 아니므로 **매출을 그대로 따라야** 한다.
+   *
+   * 전에는 만들 때의 부가세 기준과 금액을 그 장에 박아 뒀다. 그래서
+   * 매출을 「별도 → 포함」 으로 바꾸시면 그 장만 옛 기준에 머물러,
+   * 계산서 합계가 매출보다 10% 많게 남았다.
+   *   매출 37,290,000 (포함)  vs  계산서 41,019,000 (별도로 셈한 값)
+   * (대표님 지시 2026-10-29)
+   *
+   * 장이 둘 이상이면 손대신 것이므로 건드리지 않는다 — 한 장일 때만.
+   */
+  var untouched = function (x) {
+    if (!x || x.issue_date || x.is_manual) return false;
+    var items = Array.isArray(x.items) ? x.items : [];
+    var written = items.some(function (r) {
+      return r && (String(r.name || '').trim() || (parseInt(r.supply, 10) || 0));
+    });
+    return !written;
+  };
+  var followSales = list.length === 1 && untouched(list[0]);
+
   var rows = list.map(function (it, i) {
-    var rawAmt = it.amount !== undefined ? it.amount : it.supply_amount;
-    var mode = normalizeMode(it.vat_mode || vatMode);
+    var rawAmt = followSales ? baseAmount
+      : (it.amount !== undefined ? it.amount : it.supply_amount);
+    var mode = normalizeMode(followSales ? vatMode : (it.vat_mode || vatMode));
     var dbase = normalizeBase(it.discount_base || discountBase);
     var t = computeTotals(rawAmt, it.discount, mode, dbase);
     var credit = (it.credit_amount !== undefined && it.credit_amount !== '')

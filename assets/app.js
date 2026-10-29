@@ -7705,7 +7705,15 @@ function renderInvoices() {
     });
     out.push('</div></div>');
 
-    /* ⑥ 결제 */
+    /*
+     * ⑥ 결제
+     *
+     * 현금·수표·어음을 안 적으면 합계 전액이 외상미수금이 된다
+     * (홈택스가 그렇게 적는다). 적지 않았는데 숫자가 보이는 까닭이라
+     * 한 줄로 적어 둔다. (대표님 물으심 2026-10-29)
+     */
+    out.push('<div class="inv-pay-note">현금 · 수표 · 어음을 적지 않으면 '
+      + '<b>합계 전액이 외상미수금</b>으로 잡힙니다 — 홈택스 발행 화면과 같은 모양입니다.</div>');
     out.push('<div class="rline sub-line">');
     out.push('<div class="rf-lb">결제</div>');
     [['cash', '현금'], ['check_amount', '수표'], ['note_amount', '어음'], ['credit_amount', '외상미수금']]
