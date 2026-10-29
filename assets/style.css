@@ -931,24 +931,55 @@ html { font-size: 16px; }
 .an-table { table-layout: fixed; width: 100%; }
 .an-table th.th-num { width: 9.5rem; }
 .an-table th.th-mid { width: 6rem; }
+/*
+ * 이름 칸에도 너비를 준다.
+ *
+ * 안 주면 그 칸이 **남는 자리를 혼자 다 가져간다**. 칸이 네댓 개뿐인
+ * 표에서는 「월」 한 칸이 화면 절반을 차지했다. (대표님 지시 2026-10-29)
+ * 너비를 주면 남는 자리가 모든 칸에 고루 나뉜다.
+ * 펼침표(▸) 칸은 제 너비를 따로 적어 두었으므로 그대로 둔다.
+ */
+.an-table thead th:not([class]) { width: 14rem; }
+/* 이름이 짧은 칸 (월 · 분류 · 회사 · 구분 · 영업) 은 좁게 */
+.an-table th.th-key { width: 8rem; }
 .an-table th, .an-table td { overflow: hidden; text-overflow: ellipsis; }
+/*
+ * 펼침표(▸) 칸은 아주 좁다. 줄임표가 뜨면 화살표 대신 「…」 만 보인다.
+ * 그 칸만 줄임표를 끈다. (2026-10-29)
+ */
+.an-table .ent-caret, .an-table .op-caret {
+  overflow: visible; text-overflow: clip;
+  padding-left: 0; padding-right: 0;
+}
 .an-table .an-name { white-space: nowrap; }
 
-/* 과정 목록도 같은 까닭으로 — 쪽을 넘겨도 자리가 안 흔들리게 */
-.proj-table { table-layout: fixed; width: 100%; }
-.proj-table th.th-mid  { width: 6rem; }
-.proj-table th.th-client { width: 10rem; }
-.proj-table th.th-type { width: 5rem; }
-.proj-table th.th-sched { width: 11rem; }
-.proj-table th.th-mgr  { width: 6rem; }
-.proj-table th.th-issue { width: 7rem; }
-.proj-table th.th-num  { width: 9rem; }
-.proj-table th, .proj-table td { overflow: hidden; text-overflow: ellipsis; }
+/*
+ * 과정 목록은 칸이 열둘이다 (회사·고객사·구분·과정명·교육일정·담당자·
+ * 총매출·총매입·이익·발행일·미수금·확인).
+ *
+ * 여기에 고정 폭을 씌웠더니 과정명이 네 줄로 접혔다 — 나머지 열한 칸이
+ * 자리를 다 쓰고 남는 것이 없었기 때문이다. (대표님 지시 2026-10-29)
+ * 그래서 폭은 **바람**으로만 적어 두고, 모자라면 예전처럼 가로로 민다.
+ * 숫자·날짜 칸은 줄바꿈을 막아 두어 자리가 크게 흔들리지 않는다.
+ */
+.proj-table td.c-mid, .proj-table td.amount-cell { white-space: nowrap; }
 
 @media (max-width: 1100px) {
   /* 좁은 화면에서는 가로로 밀어 보는 편이 낫다 */
-  .an-table, .proj-table { table-layout: auto; width: auto; min-width: 100%; }
+  .an-table { table-layout: auto; width: auto; min-width: 100%; }
 }
+
+/*
+ * ── 표 안은 가운데로 ──
+ *
+ * 금액만 오른쪽에 붙인다 — 자릿수를 눈으로 맞춰야 하기 때문이다.
+ * 나머지 글자와 숫자는 모두 가운데. (대표님 지시 2026-10-29)
+ *
+ * 표에만 걸어 둔다. 대시보드 카드나 묶음 글은 건드리지 않는다.
+ */
+.data-table th, .data-table td { text-align: center; }
+.data-table th.th-num, .data-table td.amount-cell,
+.data-table th.th-r,   .data-table td.td-r { text-align: right; }
 
 /* ── 쪽 나누기 ── */
 .pager {

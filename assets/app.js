@@ -5681,7 +5681,7 @@ function anTotalRow(rows, label, colspan) {
  * @param pager 쪽을 나눠 볼 표면 { size, page, onSize, onPage } 를 준다.
  *              합계 줄은 **전부**를 셈한다 — 한 쪽만 더하면 숫자가 달라진다.
  */
-function anProfitTable(title, hint, rows, firstCol, pager) {
+function anProfitTable(title, hint, rows, firstCol, pager, narrow) {
   if (!rows || rows.length === 0) {
     return '<div class="an-sec"><h3>' + title + '</h3>'
       + '<div class="an-empty">해당 기간에 자료가 없습니다.</div></div>';
@@ -5691,7 +5691,8 @@ function anProfitTable(title, hint, rows, firstCol, pager) {
     + '<h3>' + title + (hint ? '<em>' + hint + '</em>' : '') + '</h3>'
     + '<div class="table-container"><table class="data-table an-table">'
     + '<thead><tr>'
-    +   '<th>' + firstCol + '</th><th class="th-mid">건수</th>'
+    +   '<th' + (narrow ? ' class="th-key"' : '') + '>' + firstCol + '</th>'
+    +   '<th class="th-mid">건수</th>'
     +   '<th class="th-num">매출</th><th class="th-num">매입</th>'
     +   '<th class="th-num">이익</th><th class="th-mid">이익률</th>'
     + '</tr></thead><tbody>'
@@ -5841,7 +5842,7 @@ async function renderAnalytics() {
       const sales = sum('sales'), profit = sum('profit');
       return '<div class="an-sec"><h3>월별<em>' + d.period.year + '년 · 회사 경비까지 반영한 이익</em></h3>'
         + '<div class="table-container"><table class="data-table an-table">'
-        + '<thead><tr><th>월</th><th class="th-mid">건수</th>'
+        + '<thead><tr><th class="th-key">월</th><th class="th-mid">건수</th>'
         +   '<th class="th-num">매출</th><th class="th-num">과정 매입</th>'
         +   '<th class="th-num">회사 경비</th><th class="th-num">이익</th><th class="th-mid">이익률</th>'
         + '</tr></thead><tbody>'
@@ -5869,7 +5870,7 @@ async function renderAnalytics() {
 
     /* ── 회사별 ── */
     '<div class="an-two">',
-    anProfitTable('회사별', '과정을 진행한 회사 기준', d.byCompany, '회사'),
+    anProfitTable('회사별', '과정을 진행한 회사 기준', d.byCompany, '회사', null, true),
     (function () {
       const rows = d.byInvoiceCompany || [];
       if (rows.length === 0) {
@@ -5879,7 +5880,7 @@ async function renderAnalytics() {
       const sum = (k) => rows.reduce((a, r) => a + (r[k] || 0), 0);
       return '<div class="an-sec"><h3>세금계산서 발행회사별<em>실제 발행한 회사 기준</em></h3>'
         + '<div class="table-container"><table class="data-table an-table">'
-        + '<thead><tr><th>발행회사</th><th class="th-mid">장수</th>'
+        + '<thead><tr><th class="th-key">발행회사</th><th class="th-mid">장수</th>'
         +   '<th class="th-num">공급가액</th><th class="th-num">부가세</th>'
         +   '<th class="th-num">합계</th><th class="th-num">미수금</th></tr></thead><tbody>'
         + rows.map(r =>
@@ -5919,7 +5920,7 @@ async function renderAnalytics() {
       const sales = sum('sales'), profit = sum('profit');
       return '<div class="an-sec"><h3>영업(외부)별<em>지급 수수료 포함</em></h3>'
         + '<div class="table-container"><table class="data-table an-table">'
-        + '<thead><tr><th>영업</th><th class="th-mid">건수</th>'
+        + '<thead><tr><th class="th-key">영업</th><th class="th-mid">건수</th>'
         +   '<th class="th-num">매출</th><th class="th-num">매입</th>'
         +   '<th class="th-num">수수료</th><th class="th-num">이익</th><th class="th-mid">이익률</th>'
         + '</tr></thead><tbody>'
@@ -5946,7 +5947,7 @@ async function renderAnalytics() {
 
     /* ── 구분별 · 매입 분류별 나란히 ── */
     '<div class="an-two">',
-    anProfitTable('구분별', '교육 · 특강 · 기타', d.byType, '구분'),
+    anProfitTable('구분별', '교육 · 특강 · 기타', d.byType, '구분', null, true),
     (function () {
       const rows = d.byExpenseCategory || [];
       if (rows.length === 0) {
@@ -5955,7 +5956,7 @@ async function renderAnalytics() {
       const total = rows.reduce((a, r) => a + r.amount, 0);
       return '<div class="an-sec"><h3>매입 분류별<em>과정 매입의 구성</em></h3>'
         + '<div class="table-container"><table class="data-table an-table">'
-        + '<thead><tr><th>분류</th><th class="th-mid">건수</th>'
+        + '<thead><tr><th class="th-key">분류</th><th class="th-mid">건수</th>'
         +   '<th class="th-num">총액</th><th class="th-num">세금</th>'
         +   '<th class="th-num">실지급액</th><th class="th-mid">비중</th>'
         + '</tr></thead><tbody>'
@@ -6010,7 +6011,7 @@ async function renderAnalytics() {
       return '<div class="an-sec"><h3>회사 경비 분류별'
         + '<em>급여 · 4대보험 · 퇴직금 · 사무실운영비 등</em></h3>'
         + '<div class="table-container"><table class="data-table an-table">'
-        + '<thead><tr><th>분류</th><th class="th-mid">건수</th>'
+        + '<thead><tr><th class="th-key">분류</th><th class="th-mid">건수</th>'
         +   '<th class="th-num">금액</th><th class="th-mid">비중</th></tr></thead><tbody>'
         + rows.map(r =>
           '<tr><td class="an-name">' + esc(r.name) + '</td>'
