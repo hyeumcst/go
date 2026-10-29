@@ -484,7 +484,18 @@ function initLogin() {
  *    (Auth.gs 의 requireAdmin — 직원은 과정 삭제·명단 등록·입금 체크·
  *     정산자료·계정 관리를 아예 할 수 없다)
  */
-const STAFF_ROUTES = ['project-form', 'dashboard', 'visits', 'projects', 'tax', 'password'];
+const STAFF_ROUTES = ['project-form', 'dashboard', 'visits', 'projects', 'tax', 'password',
+  'list-client', 'list-instructor', 'list-partner'];
+
+/*
+ * 직원만 보는 화면 — 명단(고객사 · 강사 · 협력사).
+ *
+ * 직원도 새로 등록하고 고쳐야 해서 둔다. 실적은 안 보인다.
+ * 관리자에게는 실적까지 함께 보는 「고객사 · 강사별 매입 ·
+ * 협력사별 매입」 이 따로 있으므로 겹치지 않게 감춘다.
+ * (대표님 지시 2026-10-29)
+ */
+const STAFF_ONLY_ROUTES = ['list-client', 'list-instructor', 'list-partner'];
 
 /**
  * 이 사람에게 이 메뉴를 보여줄지.
@@ -494,6 +505,8 @@ const STAFF_ROUTES = ['project-form', 'dashboard', 'visits', 'projects', 'tax', 
  * 관리자 주소(/admin)에서는 관리자에게 전부 보인다.
  */
 function canSeeRoute(user, route) {
+  /* 명단 화면은 직원 몫 — 관리자에게는 더 자세한 화면이 따로 있다 */
+  if (STAFF_ONLY_ROUTES.indexOf(route) >= 0) return !isAdminView();
   if (siteKind() === 'staff') return STAFF_ROUTES.indexOf(route) >= 0;
   if (user && user.role === 'admin') return true;
   return STAFF_ROUTES.indexOf(route) >= 0;
@@ -889,6 +902,10 @@ function initApp() {
             item('tax', '세금계산서')
           ])}
           ${section('기타 세부관리', [
+            /* 직원에게만 보인다 (관리자는 아래 「고객사 · 강사별 매입 …」 으로 본다) */
+            item('list-client', '고객사 명단'),
+            item('list-instructor', '강사 명단'),
+            item('list-partner', '협력사 명단'),
             item('op-costs', '운영비 관리'),
             item('ent-client', '고객사'),
             item('ent-instructor', '강사별 매입'),
@@ -1136,6 +1153,10 @@ function navigate(route, params = null) {
     case 'overheads': renderOverheads(); break;
     /* 'book-costs' 는 예전 이름이다 — 즐겨찾기를 해 두셨을 수 있어 함께 받는다 */
     case 'op-costs': case 'book-costs': renderOpCosts(); break;
+    /* 명단만 보는 화면 (직원) — 실적은 안 보인다 */
+    case 'list-client': renderClients(); break;
+    case 'list-instructor': renderInstructors(); break;
+    case 'list-partner': renderPartners(); break;
     case 'ent-client': renderEntity('client'); break;
     case 'ent-instructor': renderEntity('instructor'); break;
     case 'ent-partner': renderEntity('partner'); break;
@@ -3854,10 +3875,12 @@ async function renderClients() {
       findBar('clients', '고객사명 검색', shown.length, res.clients.length),
       '<div class="table-container">',
       '  <table class="data-table">',
-      '    <thead><tr><th>고객사명</th><th>담당자</th><th>과정</th><th>누적 매출</th><th></th></tr></thead>',
+      /* 실적(과정 건수 · 누적 매출)은 관리자 화면에서만 — 직원에게는 명단만 */
+    '    <thead><tr><th>고객사명</th><th>담당자</th>'
+  + (isAdminView() ? '<th>과정</th><th>누적 매출</th>' : '') + '<th></th></tr></thead>',
       '    <tbody>',
       (shown.length === 0
-        ? '<tr><td colspan="5"><div class="empty-state" style="padding:2rem"><p>'
+        ? '<tr><td colspan="' + (isAdminView() ? 5 : 3) + '"><div class="empty-state" style="padding:2rem"><p>'
           + (FIND.clients ? '찾는 고객사가 없습니다.' : '등록된 고객사가 없습니다.') + '</p></div></td></tr>'
         : shown.map(function (c) {
           return '<tr>'
@@ -3865,8 +3888,10 @@ async function renderClients() {
             + '<td>' + (c.contact_count > 0
               ? '<span class="badge badge-active">' + c.contact_count + '명</span>'
               : '<span style="color:var(--text-muted); font-size:0.85rem">없음</span>') + '</td>'
-            + '<td style="color:var(--text-secondary)">' + c.project_count + '건</td>'
-            + '<td class="amount-cell">' + formatNumber(c.total_sales) + '</td>'
+            + (isAdminView()
+                ? '<td style="color:var(--text-secondary)">' + c.project_count + '건</td>'
+                  + '<td class="amount-cell">' + formatNumber(c.total_sales) + '</td>'
+                : '')
             + '<td><button class="btn btn-ghost btn-sm" onclick="openClientModal(' + c.id + ')">✎ 수정 · 담당자</button></td>'
             + '</tr>';
         }).join('')),
@@ -3969,7 +3994,6 @@ async function dropClientContact(clientId, contactId) {
 }
 // ═══════════ 협력사 관리 ═══════════
 async function renderPartners() {
-  if (!API.isAdmin()) return showToast('권한이 없습니다.', 'error');
   try {
     const res = await API.getPartners();
     State.partners = res.partners;
@@ -4113,7 +4137,9 @@ function openPartnerModal(id) {
     + esc(t ? t.note : '') + '"></div>',
     '  </div>',
     '  <div class="modal-footer">',
-    (isNew ? '' : '<button class="btn btn-danger btn-sm" onclick="removePartner(' + id + ')">목록에서 제외</button>'),
+    /* 목록에서 빼는 것은 관리자만 — 빼면 과정등록 자동완성에서도 사라진다 */
+    ((isNew || !isAdminView()) ? ''
+      : '<button class="btn btn-danger btn-sm" onclick="removePartner(' + id + ')">목록에서 제외</button>'),
     '    <button class="btn btn-ghost" onclick="this.closest(\'.modal-overlay\').remove()">취소</button>',
     '    <button class="btn btn-primary" onclick="savePartner(' + (id || 'null') + ')">저장</button>',
     '  </div>',
@@ -4631,7 +4657,6 @@ async function deleteProject(id) {
 
 // --- 나머지 관리자 페이지들 (강사, 직원)은 기존과 유사하되 간소화하여 유지 ---
 async function renderInstructors() {
-  if (!API.isAdmin()) return showToast('권한이 없습니다.', 'error');
   REDRAW = renderInstructors;
   try {
     const { instructors } = await API.getInstructors();
@@ -4644,7 +4669,9 @@ async function renderInstructors() {
       <div class="page-header">
         <div><h2>강사 관리</h2><div class="subtitle">🔒 개인정보 미보관 — 주민번호·연락처·계좌는 오프라인 엑셀에서 강사코드로 관리</div></div>
         <div style="display:flex; gap:0.5rem">
-          <button class="btn btn-outline" onclick="downloadRoster()"><span class="icon">📥</span> 엑셀용 명단 내려받기</button>
+          ${isAdminView()
+            ? '<button class="btn btn-outline" onclick="downloadRoster()"><span class="icon">📥</span> 엑셀용 명단 내려받기</button>'
+            : ''}
           <button class="btn btn-primary" onclick="openInstModal()"><span class="icon">➕</span> 강사 등록</button>
         </div>
       </div>

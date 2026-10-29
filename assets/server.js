@@ -3055,7 +3055,14 @@ function instructorsCreate(u, b) {
 }
 
 function instructorsUpdate(u, id, b) {
-  requireAdmin(u);
+  /*
+   * 직원도 고칠 수 있다 — 명단은 직원이 직접 채우고 다듬어야 한다.
+   * (대표님 지시 2026-10-29)
+   *
+   * 다만 「목록에서 빼기」(is_active)는 관리자만. 지우는 일에 가깝고,
+   * 빼면 과정등록 자동완성에서 사라져 다른 분들 일이 막힌다.
+   */
+  if (b.is_active !== undefined) requireAdmin(u);
   var patch = {};
   if (b.name !== undefined) patch.name = trim_(b.name);
   if (b.title !== undefined) patch.title = trim_(b.title);
@@ -3111,7 +3118,8 @@ function partnersCreate(u, b) {
 }
 
 function partnersUpdate(u, id, b) {
-  requireAdmin(u);
+  /* 직원도 고칠 수 있다. 「목록에서 빼기」만 관리자 몫 (위 강사와 같다) */
+  if (b.is_active !== undefined) requireAdmin(u);
   var patch = {};
   if (b.name !== undefined) patch.name = trim_(b.name);
   if (b.category !== undefined) patch.category = trim_(b.category);
