@@ -662,8 +662,9 @@ function pageSlice(rows, size, page) {
  * @param o.size   지금 크기 (숫자 또는 'all')
  * @param o.page   지금 쪽
  * @param o.total  전부 몇 줄인지
- * @param o.onSize 크기를 바꿀 때 부를 함수 이름 (글자, 값 하나를 받는다)
- * @param o.onPage 쪽을 옮길 때 부를 함수 이름 (글자, 쪽 번호를 받는다)
+ * @param o.key    화면 이름 — 이것만 주면 아래 공용 함수가 알아서 한다
+ * @param o.onSize (key 대신) 크기를 바꿀 때 부를 함수 이름
+ * @param o.onPage (key 대신) 쪽을 옮길 때 부를 함수 이름
  */
 function pagerBar(o) {
   const size = o.size, total = o.total || 0;
@@ -679,13 +680,17 @@ function pagerBar(o) {
     a = Math.max(1, b - 6);
     for (let i = a; i <= b; i++) nums.push(i);
   }
+  /* 화면 이름만 주면 공용 함수를 부른다 — 화면마다 함수를 둘 까닭이 없다 */
+  const sizeCall = o.key ? "setPgSize('" + o.key + "', this.value)" : o.onSize + '(this.value)';
+  const pageCall = (n) => o.key ? "goPg('" + o.key + "', " + n + ")" : o.onPage + '(' + n + ')';
+
   const btn = (label, to2, cls) =>
     '<button type="button" class="pg-b' + (cls ? ' ' + cls : '') + '"'
-    + (to2 === null ? ' disabled' : ' onclick="' + o.onPage + '(' + to2 + ')"')
+    + (to2 === null ? ' disabled' : ' onclick="' + pageCall(to2) + '"')
     + '>' + label + '</button>';
 
   return '<div class="pager">'
-    + '<select class="form-select pg-size" onchange="' + o.onSize + '(this.value)">'
+    + '<select class="form-select pg-size" onchange="' + sizeCall + '">'
     +   PAGE_SIZES.map(function (x) {
           return '<option value="' + x[0] + '"' + (String(size) === x[0] ? ' selected' : '') + '>'
             + x[1] + '</option>';
@@ -705,6 +710,39 @@ function pagerBar(o) {
         : '')
     + '</div>';
 }
+
+/*
+ * 화면마다 몇 줄씩 · 몇 쪽을 보고 있는지.
+ *
+ * 과정 목록(LIST) · 분석(AN) · 명단 실적(ENT) 은 제 상태가 따로 있다.
+ * 나머지 아홉 화면은 여기에 모아 둔다 — 화면마다 같은 함수를 아홉 벌
+ * 만들 까닭이 없다. (대표님 지시 2026-10-29)
+ */
+const PG = {};
+function pgOf(k) { if (!PG[k]) PG[k] = { size: 10, page: 1 }; return PG[k]; }
+
+/** 그 화면을 다시 그리는 법 */
+const PG_REDRAW = {
+  visits:      function () { return renderVisits(); },
+  tax:         function () { return renderTax(); },
+  op:          function () { return renderOpCosts(); },
+  clients:     function () { return renderClients(); },
+  instructors: function () { return renderInstructors(); },
+  partners:    function () { return renderPartners(); },
+  overheads:   function () { return renderOverheads(); },
+  cards:       function () { return renderCards(); },
+  staff:       function () { return renderStaff(); },
+  /* 직원 화면에는 표가 둘이라 쪽도 따로 센다 */
+  'st-manager': function () { return renderStaff(); },
+  'st-rep':     function () { return renderStaff(); }
+};
+
+/** 몇 줄씩 볼지 */
+function setPgSize(k, v) { const p = pgOf(k); p.size = pageSize(v); p.page = 1; PG_REDRAW[k](); }
+/** 몇 쪽을 볼지 */
+function goPg(k, n) { pgOf(k).page = n; PG_REDRAW[k](); toTop(); }
+/** 조건이 바뀌면 첫 쪽부터 — 세 쪽째를 보다 조건을 바꾸면 빈 화면이 된다 */
+function pgReset(k) { pgOf(k).page = 1; }
 
 /* ═══════════════════════════════════════════════════════════
    검색칸 — 다시 그려도 적던 자리에 그대로 있어야 한다
@@ -1805,8 +1843,10 @@ async function renderVisits() {
         '  <th>교육일정 <em class="th-sub">(하기로 한 날)</em></th>',
         '  <th>진행날짜</th><th class="th-mid">진행일수</th><th class="th-mid">진행자</th><th>메모</th><th class="th-mid"></th>',
         '</tr></thead><tbody>',
-        VISIT.rows.map(visitRow).join(''),
-        '</tbody></table></div>'
+        pageSlice(VISIT.rows, pgOf('visits').size, pgOf('visits').page).map(visitRow).join(''),
+        '</tbody></table></div>',
+        pagerBar({ key: 'visits', size: pgOf('visits').size,
+                   page: pgOf('visits').page, total: VISIT.rows.length })
       ].join(''))
   ].join('');
 
@@ -1867,11 +1907,12 @@ function schedText(rows, days) {
   return days ? head + ' (' + days + '일)' : head;
 }
 
-function setVisitFilter(key, v) { VISIT[key] = v; renderVisits(); }
+function setVisitFilter(key, v) { VISIT[key] = v; pgReset('visits'); renderVisits(); }
 
 let visitSearchTimer = null;
 function onVisitSearch(v) {
   VISIT.q = v;
+  pgReset('visits');
   clearTimeout(visitSearchTimer);
   visitSearchTimer = setTimeout(function () {
     searchRedraw('vs-q', function () { return VISIT.q; }, renderVisits);
@@ -4019,7 +4060,7 @@ async function renderClients() {
       (shown.length === 0
         ? '<tr><td colspan="' + (isAdminView() ? 5 : 3) + '"><div class="empty-state" style="padding:2rem"><p>'
           + (FIND.clients ? '찾는 고객사가 없습니다.' : '등록된 고객사가 없습니다.') + '</p></div></td></tr>'
-        : shown.map(function (c) {
+        : pageSlice(shown, pgOf('clients').size, pgOf('clients').page).map(function (c) {
           return '<tr>'
             + '<td style="font-weight:600">' + esc(c.name) + '</td>'
             + '<td>' + (c.contact_count > 0
@@ -4034,7 +4075,9 @@ async function renderClients() {
         }).join('')),
       '    </tbody>',
       '  </table>',
-      '</div>'
+      '</div>',
+      pagerBar({ key: 'clients', size: pgOf('clients').size,
+                 page: pgOf('clients').page, total: shown.length })
     ].join('');
   } catch (e) { showToast(e.message, 'error'); }
 }
@@ -4152,7 +4195,7 @@ async function renderPartners() {
       (shown.length === 0
         ? '<tr><td colspan="6"><div class="empty-state" style="padding:2rem"><p>'
           + (FIND.partners ? '찾는 협력사가 없습니다.' : '등록된 협력사가 없습니다.') + '</p></div></td></tr>'
-        : shown.map(function (p) {
+        : pageSlice(shown, pgOf('partners').size, pgOf('partners').page).map(function (p) {
           return '<tr>'
             + '<td style="color:var(--text-muted)">' + p.id + '</td>'
             + '<td style="font-weight:600">' + esc(p.name) + '</td>'
@@ -4164,7 +4207,9 @@ async function renderPartners() {
         }).join('')),
       '    </tbody>',
       '  </table>',
-      '</div>'
+      '</div>',
+      pagerBar({ key: 'partners', size: pgOf('partners').size,
+                 page: pgOf('partners').page, total: shown.length })
     ].join('');
   } catch (e) { showToast(e.message, 'error'); }
 }
@@ -4832,7 +4877,7 @@ async function renderInstructors() {
             ? '<tr><td colspan="8"><div class="empty-state" style="padding:2rem"><p>'
               + (FIND.instructors ? '찾는 강사가 없습니다.' : '등록된 강사가 없습니다.')
               + '</p></div></td></tr>'
-            : shown.map(i => `
+            : pageSlice(shown, pgOf('instructors').size, pgOf('instructors').page).map(i => `
               <tr>
                 <td class="inst-code">${i.id}</td>
                 <td style="font-weight:600">${esc(i.name)}</td>
@@ -4850,6 +4895,8 @@ async function renderInstructors() {
           </tbody>
         </table>
       </div>
+      ${pagerBar({ key: 'instructors', size: pgOf('instructors').size,
+                   page: pgOf('instructors').page, total: shown.length })}
     `;
   } catch(e) { showToast(e.message, 'error'); }
 }
@@ -6074,7 +6121,7 @@ async function renderOverheads() {
         '<thead><tr><th>지출일</th><th>분류</th><th>내역</th>',
         '  <th class="th-num">금액</th><th class="th-num">부가세</th>',
         '  <th>부가세 처리</th><th class="th-mid">카드</th><th>비고</th><th>등록자</th><th></th></tr></thead><tbody>',
-        d.overheads.map(o =>
+        pageSlice(d.overheads, pgOf('overheads').size, pgOf('overheads').page).map(o =>
           '<tr>'
           + '<td class="c-mid" style="white-space:nowrap">' + esc(o.spend_date) + '</td>'
           + '<td><span class="badge badge-admin">' + esc(o.category) + '</span></td>'
@@ -6091,7 +6138,9 @@ async function renderOverheads() {
           +   '<button class="btn btn-danger btn-sm" onclick="deleteOh(' + o.id + ')">✕</button>'
           + '</td></tr>'
         ).join(''),
-        '</tbody></table></div>'
+        '</tbody></table></div>',
+        pagerBar({ key: 'overheads', size: pgOf('overheads').size,
+                   page: pgOf('overheads').page, total: d.overheads.length })
       ].join(''))
   ].join('');
 }
@@ -6099,17 +6148,20 @@ async function renderOverheads() {
 function setOh(key, value) {
   OH[key] = value;
   if (key === 'year' && !value) OH.month = '';
+  pgReset('overheads');       // 조건이 바뀌면 첫 쪽부터
   renderOverheads();
 }
 
 function resetOh() {
   OH.year = ''; OH.month = ''; OH.category = ''; OH.q = '';
+  pgReset('overheads');
   renderOverheads();
 }
 
 let ohSearchTimer = null;
 function onOhSearch(v) {
   OH.q = v;
+  pgReset('overheads');
   clearTimeout(ohSearchTimer);
   ohSearchTimer = setTimeout(function () {
     searchRedraw('oh-q', function () { return OH.q; }, renderOverheads);
@@ -6661,7 +6713,7 @@ async function renderStaff() {
         ? '<tr><td colspan="8"><div class="empty-state" style="padding:2rem"><p>'
           + (FIND.staff ? '찾는 사람이 없습니다.' : '등록된 사람이 없습니다.') + '</p></div></td></tr>'
         : ''),
-      shown.map(s =>
+      pageSlice(shown, pgOf('staff').size, pgOf('staff').page).map(s =>
         '<tr' + (s.is_active ? '' : ' style="opacity:0.55"') + '>'
         + '<td><span class="badge ' + (s.kind === '영업' ? 'badge-user' : 'badge-admin') + '">'
         +   esc(s.kind) + '</span></td>'
@@ -6679,7 +6731,9 @@ async function renderStaff() {
           : '')
         + '</tr>'
       ).join(''),
-      '</tbody></table></div>'
+      '</tbody></table></div>',
+      pagerBar({ key: 'staff', size: pgOf('staff').size,
+                 page: pgOf('staff').page, total: shown.length })
     ].join('');
     return;
   }
@@ -6721,10 +6775,18 @@ async function renderStaff() {
   ].join('');
 }
 
+/**
+ * 직원 · 외부영업자 실적 표.
+ *
+ * 담당자별과 영업자별이 한 화면에 둘 있으므로 쪽도 따로 센다
+ * (st-manager · st-rep). 합계는 늘 **전부**를 셈한다.
+ */
 function stTable(title, hint, rows, kind, showFee) {
   if (rows.length === 0) {
     return '<div class="an-sec"><h3>' + title + '</h3><div class="an-empty">자료가 없습니다.</div></div>';
   }
+  const pgk = 'st-' + kind;
+  const shown = pageSlice(rows, pgOf(pgk).size, pgOf(pgk).page);
   const sum = (k) => rows.reduce((a, r) => a + (r[k] || 0), 0);
   const sales = sum('sales'), profit = sum('profit');
   const cols = showFee ? 8 : 7;
@@ -6735,7 +6797,7 @@ function stTable(title, hint, rows, kind, showFee) {
     +   '<th class="th-num">매출</th><th class="th-num">매입</th>'
     +   (showFee ? '<th class="th-num">수수료</th>' : '')
     +   '<th class="th-num">이익</th><th class="th-mid">이익률</th></tr></thead><tbody>'
-    + rows.map(r => {
+    + shown.map(r => {
       const open = ST.open === r.name && ST.openKind === kind;
       const key = esc(r.name).replace(/'/g, '&#39;');
       return '<tr class="ent-row' + (open ? ' open' : '') + '"'
@@ -6764,7 +6826,9 @@ function stTable(title, hint, rows, kind, showFee) {
     +   (showFee ? '<td class="amount-cell">' + formatNumber(sum('fee')) + '</td>' : '')
     +   '<td class="amount-cell">' + formatNumber(profit) + '</td>'
     +   '<td class="c-mid">' + (sales ? ((profit / sales) * 100).toFixed(1) + '%' : '-') + '</td>'
-    + '</tr></tbody></table></div></div>';
+    + '</tr></tbody></table></div>'
+    + pagerBar({ key: pgk, size: pgOf(pgk).size, page: pgOf(pgk).page, total: rows.length })
+    + '</div>';
 }
 
 async function toggleSt(kind, name) {
@@ -6782,7 +6846,11 @@ async function toggleSt(kind, name) {
   renderStaff();
 }
 
-function setSt(k, v) { ST[k] = v; ST.open = null; ST.detail = null; renderStaff(); }
+function setSt(k, v) {
+  pgReset('st-manager'); pgReset('st-rep');   // 조건이 바뀌면 첫 쪽부터
+  ST[k] = v; ST.open = null; ST.detail = null;
+  renderStaff();
+}
 function setStTab(t) { ST.tab = t; renderStaff(); }
 
 function openStaffModal(id) {
@@ -6980,7 +7048,7 @@ async function renderTax() {
         '  <th class="th-num">합계</th><th>받는 사람</th><th class="th-mid">입금일</th>',
         '  <th class="th-num">미수금</th><th class="th-mid">발행요청 <em class="th-sub">(누가 · 언제)</em></th>',
         '</tr></thead><tbody>',
-        d.invoices.map(function (v) {
+        pageSlice(d.invoices, pgOf('tax').size, pgOf('tax').page).map(function (v) {
           const paid = !!v.paid_date;
           return '<tr class="' + (paid ? 'paid' : 'unpaid') + '">'
             + '<td class="c-mid"><span class="co-tag' + (v.company === '그로우인' ? ' sub' : '') + '">'
@@ -7007,7 +7075,9 @@ async function renderTax() {
             + '<td class="c-mid">' + reqCell(v) + '</td>'
             + '</tr>';
         }).join(''),
-        '</tbody></table></div>'
+        '</tbody></table></div>',
+        pagerBar({ key: 'tax', size: pgOf('tax').size,
+                   page: pgOf('tax').page, total: d.invoices.length })
       ].join(''))
   ].join('');
 }
@@ -7037,17 +7107,20 @@ async function setPaid(id, value) {
 function setTax(k, v) {
   TAX[k] = v;
   if (k === 'year' && !v) TAX.month = '';
+  pgReset('tax');             // 조건이 바뀌면 첫 쪽부터
   renderTax();
 }
 
 function resetTax() {
   TAX.year = ''; TAX.month = ''; TAX.company = ''; TAX.status = 'unpaid'; TAX.q = '';
+  pgReset('tax');
   renderTax();
 }
 
 let taxSearchTimer = null;
 function onTaxSearch(v) {
   TAX.q = v;
+  pgReset('tax');
   clearTimeout(taxSearchTimer);
   taxSearchTimer = setTimeout(function () {
     searchRedraw('tax-q', function () { return TAX.q; }, renderTax);
@@ -7862,6 +7935,7 @@ const FIND_RENDER = {
 let findTimer = null;
 function onFind(key, v) {
   FIND[key] = v;
+  pgReset(key);               // 찾으시면 첫 쪽부터
   clearTimeout(findTimer);
   findTimer = setTimeout(function () {
     searchRedraw('find-' + key, function () { return FIND[key]; }, FIND_RENDER[key]);
@@ -7870,6 +7944,7 @@ function onFind(key, v) {
 
 function clearFind(key) {
   FIND[key] = '';
+  pgReset(key);
   FIND_RENDER[key]();
 }
 
@@ -7932,7 +8007,7 @@ async function renderCards() {
         '  <th class="th-mid">회사</th><th class="th-mid">과정 매입</th><th class="th-num">금액</th>',
         '  <th class="th-mid">회사 경비</th><th class="th-num">금액</th>',
         '  <th>비고</th><th class="th-mid">상태</th>' + (API.isAdmin() ? '<th></th>' : '') + '</tr></thead><tbody>',
-        rows.map(function (c) {
+        pageSlice(rows, pgOf('cards').size, pgOf('cards').page).map(function (c) {
           return '<tr' + (c.is_active ? '' : ' style="opacity:0.55"') + '>'
             + '<td class="c-mid"><span class="card-no">···' + esc(c.last4) + '</span></td>'
             + '<td style="font-weight:600">' + esc(c.issuer || '-') + '</td>'
@@ -7953,7 +8028,9 @@ async function renderCards() {
               : '')
             + '</tr>';
         }).join(''),
-        '</tbody></table></div>'
+        '</tbody></table></div>',
+        pagerBar({ key: 'cards', size: pgOf('cards').size,
+                   page: pgOf('cards').page, total: rows.length })
       ].join(''))
   ].join('');
 }
@@ -8169,10 +8246,12 @@ async function renderOpCosts() {
                     ? esc(opMonthLabel(OP.month)) + '에 교육한 과정이 없습니다.'
                     : '등록된 과정이 없습니다.'))
         + '</p></div></td></tr>'
-      : d.rows.map(opProjectRow).join('')),
+      : pageSlice(d.rows, pgOf('op').size, pgOf('op').page).map(opProjectRow).join('')),
     '    </tbody>',
     '  </table>',
-    '</div>'
+    '</div>',
+    pagerBar({ key: 'op', size: pgOf('op').size,
+               page: pgOf('op').page, total: (d.rows || []).length })
   ].join('');
 }
 
@@ -8460,6 +8539,7 @@ async function removeOpItem(id) {
 let opSearchTimer = null;
 function onOpSearch(v) {
   OP.q = v;
+  pgReset('op');
   clearTimeout(opSearchTimer);
   opSearchTimer = setTimeout(function () {
     searchRedraw('op-q', function () { return OP.q; }, function () {
@@ -8468,6 +8548,10 @@ function onOpSearch(v) {
     });
   }, 250);
 }
-function setOp(k, v) { OP[k] = v; OP.open = 0; OP_ITEMS = null; renderOpCosts(); }
+function setOp(k, v) { OP[k] = v; OP.open = 0; OP_ITEMS = null; pgReset('op'); renderOpCosts(); }
 /** 조건 지우기 — 달도 「전체」로 (이번 달로 되돌아가면 지운 것이 아니다) */
-function resetOp() { OP.q = ''; OP.month = ''; OP.open = 0; OP_ITEMS = null; renderOpCosts(); }
+function resetOp() {
+  OP.q = ''; OP.month = ''; OP.open = 0; OP_ITEMS = null;
+  pgReset('op');
+  renderOpCosts();
+}
