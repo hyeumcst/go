@@ -74,13 +74,54 @@ const DEFAULT_COMPANY = COMPANIES[0];
 let HYEUM_MANAGERS = [];
 let SALES_REPS = [];
 
-/** 명단을 한 번 받아 위 두 배열을 채운다 */
-async function loadStaffNames() {
-  try {
-    const r = await API.getStaff();
-    if (r.managers && r.managers.length) HYEUM_MANAGERS = r.managers;
-    if (r.salesReps && r.salesReps.length) SALES_REPS = r.salesReps;
-  } catch (e) { /* 못 받아도 예비값으로 돈다 */ }
+/*
+ * 명단을 받아 위 두 배열을 채운다.
+ *
+ * ★ 받아 오는 일을 하나로 묶어 둔다 (STAFF_WAIT).
+ *   과정 화면이 명단보다 먼저 그려지면 고르는 칸이 비어 버린다 —
+ *   새 창으로 과정 화면을 열면 늘 그렇게 된다. 그래서 그릴 쪽에서
+ *   이 약속을 기다릴 수 있게 해 둔다. (2026-10-30)
+ * ★ 못 받았으면 약속을 지운다 — 다음에 다시 물어본다.
+ */
+let STAFF_WAIT = null;
+
+function loadStaffNames() {
+  if (!STAFF_WAIT) {
+    STAFF_WAIT = (async function () {
+      try {
+        const r = await API.getStaff();
+        if (r.managers && r.managers.length) HYEUM_MANAGERS = r.managers;
+        if (r.salesReps && r.salesReps.length) SALES_REPS = r.salesReps;
+      } catch (e) {
+        STAFF_WAIT = null;        // 다음에 다시 물어본다
+      }
+    })();
+  }
+  return STAFF_WAIT;
+}
+
+/*
+ * 명단이 바뀌었으니 다시 받아 오게 한다 —
+ * 직원을 새로 넣었는데 고르는 칸에 안 보이면 안 된다.
+ */
+function forgetStaffNames() {
+  STAFF_WAIT = null;
+  HYEUM_MANAGERS = [];
+  SALES_REPS = [];
+}
+
+/*
+ * 담당자·영업 고르는 칸의 보기들.
+ * 명단에 없는 이름이 이미 적혀 있으면 그 이름도 남겨 둔다 —
+ * 안 남기면 저장할 때 조용히 지워진다.
+ */
+function whoOptions(names, cur) {
+  const list = (names || []).slice();
+  if (cur && list.indexOf(cur) < 0) list.push(cur);
+  return list.map(function (n) {
+    return '<option value="' + esc(n) + '"' + (cur === n ? ' selected' : '')
+      + '>' + esc(n) + '</option>';
+  }).join('');
 }
 
 const QTY_UNITS = ['시간', '일', '월', '회', '명', '개'];
@@ -2457,6 +2498,7 @@ let currentProject = null;
 
 async function renderProjectForm(projectId = null) {
   loadCardList();
+  await loadStaffNames();     // ★ 담당자·영업 명단이 와야 고르는 칸이 채워진다
   State.expenseItems = [];
   State.saleItems = [];
   State.invoices = [];
@@ -2575,14 +2617,14 @@ async function renderProjectForm(projectId = null) {
               <label class="form-label">담당자 <span style="font-weight:400;color:var(--text-muted)">(직원)</span></label>
               <select id="p-manager" class="form-select">
                 <option value="">선택</option>
-                ${HYEUM_MANAGERS.map(n => `<option value="${n}" ${p.manager === n ? "selected" : ""}>${n}</option>`).join("")}
+                ${whoOptions(HYEUM_MANAGERS, p.manager)}
               </select>
             </div>
             <div class="form-group f2">
               <label class="form-label">영업 <span style="font-weight:400;color:var(--text-muted)">(외부)</span></label>
               <select id="p-sales-rep" class="form-select">
                 <option value="">선택</option>
-                ${SALES_REPS.map(n => `<option value="${n}" ${p.sales_rep === n ? "selected" : ""}>${n}</option>`).join("")}
+                ${whoOptions(SALES_REPS, p.sales_rep)}
               </select>
             </div>
           </div>
@@ -6980,6 +7022,7 @@ async function saveStaff(id) {
   try {
     if (id) await API.updateStaff(id, data);
     else await API.createStaff(data);
+    forgetStaffNames();        // 고르는 칸도 새 명단으로
     const ov = document.querySelector('.modal-overlay'); if (ov) ov.remove();
     showToast(id ? '수정했습니다.' : '등록했습니다.', 'success');
     renderStaff();
@@ -6990,6 +7033,7 @@ async function deleteStaff(id) {
   if (!confirm('이 사람을 명단에서 지울까요?\n과정에 이미 쓰인 사람은 「사용안함」으로만 바뀝니다.')) return;
   try {
     const r = await API.deleteStaff(id);
+    forgetStaffNames();        // 고르는 칸도 새 명단으로
     const ov = document.querySelector('.modal-overlay'); if (ov) ov.remove();
     showToast(r.deactivated
       ? '과정 ' + r.used + '건에 쓰이고 있어 「사용안함」으로 바꿨습니다.'
