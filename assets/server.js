@@ -4357,10 +4357,19 @@ function invoicesList(u, q) {
     o.requested_key = rq ? rq.sent_key : null;
     return o;
   }).sort(function (a, b) {
-    // 미수를 먼저, 그 안에서 오래된 발행 순 — 챙겨야 할 것이 위로 오게
-    var pa = a.paid_date ? 1 : 0, pb = b.paid_date ? 1 : 0;
-    if (pa !== pb) return pa - pb;
-    return cmp_(a.issue_date || '9999', b.issue_date || '9999') || (a.id - b.id);
+    /*
+     * 발행일 내림차순 — 가장 최근에 끊은 것이 맨 위. (대표님 지시 2026-11-02)
+     *   "1페이지가 오래된 내용이 아니라 가장 최근자료가 나오게 해줘"
+     *
+     * 전에는 미수를 먼저 올리고 그 안에서 오래된 순이었다. 그래서
+     * 첫 쪽이 늘 몇 해 전 미수로 채워져, 오늘 끊은 것을 보려면
+     * 끝까지 넘겨야 했다. 미수만 보시는 길은 위의 「상태」 칸에 있다.
+     *
+     * 아직 날을 안 적은 장은 맨 아래로 — 과정 목록의 발행일 기준과 같다.
+     */
+    var ia = a.issue_date || '', ib = b.issue_date || '';
+    if (ia !== ib) { if (!ia) return 1; if (!ib) return -1; return ia < ib ? 1 : -1; }
+    return b.id - a.id;
   });
 
   var sum = function (f, filter) {

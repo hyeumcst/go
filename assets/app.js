@@ -4240,6 +4240,7 @@ async function renderClients() {
     const shown = res.clients.filter(function (c) { return findMatch('clients', [c.name]); });
 
     document.getElementById('main-content').innerHTML = [
+      entTabHead('clients'),
       '<div class="page-header">',
       '  <div><h2>고객사 관리</h2>',
       '    <div class="subtitle">고객사와 담당자를 등록·수정합니다. 과정 등록 시 자동완성됩니다.</div></div>',
@@ -4374,6 +4375,19 @@ async function dropClientContact(clientId, contactId) {
   } catch (e) { showToast(e.message, 'error'); }
 }
 // ═══════════ 협력사 관리 ═══════════
+/**
+ * 화면에 보여줄 협력사 이름 — 「교보재업체 (교보재)」. (대표님 지시 2026-11-02)
+ *
+ * ★ 저장할 때는 이 이름을 쓰지 않는다 — 괄호까지 이름으로 들어가면
+ *   협력사가 하나 더 생긴다 (담당자 이름과 같은 까닭이다).
+ */
+function partnerLabel(p) {
+  if (!p) return '';
+  const nm = String(p.name || '').trim();
+  const ct = String(p.category || '').trim();
+  return ct ? nm + ' (' + ct + ')' : nm;
+}
+
 async function renderPartners() {
   try {
     const res = await API.getPartners();
@@ -4383,6 +4397,7 @@ async function renderPartners() {
     });
 
     document.getElementById('main-content').innerHTML = [
+      entTabHead('partners'),
       '<div class="page-header">',
       '  <div><h2>협력사 관리</h2>',
       '    <div class="subtitle">교보재·버스·연수원 등 운영 관련 업체 — 매입 입력 시 자동완성됩니다</div></div>',
@@ -4391,16 +4406,20 @@ async function renderPartners() {
       findBar('partners', '협력사명 · 분류 검색', shown.length, res.partners.length),
       '<div class="table-container">',
       '  <table class="data-table">',
-      '    <thead><tr><th>ID</th><th>협력사명</th><th>분류</th><th>기본세율</th><th>비고</th><th></th></tr></thead>',
+      /*
+     * 분류는 협력사명 칸에 「교보재업체 (교보재)」 처럼 붙여 적는다.
+     * 고객사 담당자의 「김민수 과장」 과 같은 뜻이다. (대표님 지시 2026-11-02)
+     * 칸을 따로 두지 않으므로 하나가 줄었다.
+     */
+    '    <thead><tr><th>ID</th><th>협력사명</th><th>기본세율</th><th>비고</th><th></th></tr></thead>',
       '    <tbody>',
       (shown.length === 0
-        ? '<tr><td colspan="6"><div class="empty-state" style="padding:2rem"><p>'
+        ? '<tr><td colspan="5"><div class="empty-state" style="padding:2rem"><p>'
           + (FIND.partners ? '찾는 협력사가 없습니다.' : '등록된 협력사가 없습니다.') + '</p></div></td></tr>'
         : pageSlice(shown, pgOf('partners').size, pgOf('partners').page).map(function (p) {
           return '<tr>'
             + '<td style="color:var(--text-muted)">' + p.id + '</td>'
-            + '<td style="font-weight:600">' + esc(p.name) + '</td>'
-            + '<td>' + esc(p.category || '-') + '</td>'
+            + '<td style="font-weight:600">' + esc(partnerLabel(p)) + '</td>'
             + '<td><span class="badge badge-admin">' + esc(p.default_tax_type || '-') + '</span></td>'
             + '<td style="font-size:0.85rem; color:var(--text-secondary)">' + esc(p.note || '-') + '</td>'
             + '<td><button class="btn btn-ghost btn-sm" onclick="openPartnerModal(' + p.id + ')">✎ 수정</button></td>'
@@ -5048,7 +5067,7 @@ async function renderInstructors() {
     const shown = instructors.filter(function (i) {
       return findMatch('instructors', [i.name, i.title, i.affiliation, i.email, String(i.id)]);
     });
-    document.getElementById('main-content').innerHTML = `
+    document.getElementById('main-content').innerHTML = entTabHead('instructors') + `
       <div class="page-header">
         <div><h2>강사 관리</h2><div class="subtitle">🔒 개인정보 미보관 — 주민번호·연락처·계좌는 오프라인 엑셀에서 강사코드로 관리</div></div>
         <div style="display:flex; gap:0.5rem">
@@ -6538,9 +6557,19 @@ const ENT_DEFS = {
 };
 
 /** 항목별 화면 상태 */
+/*
+ * 처음 열었을 때의 차례. (대표님 지시 2026-11-02)
+ *   "고객사는 가나다순으로 정리해줘 / 강사별 매입도 가나다순 / 협력사도 가나다순"
+ *
+ * 찾으시는 분이 어디쯤 있는지 짐작이 되어야 하기 때문이다.
+ * 법인카드는 이름이 뒤 4자리 숫자라 그대로 금액순으로 둔다.
+ */
+const ENT_FIRST_SORT = { client: 'name', instructor: 'name', partner: 'name', card: 'amount' };
+function entFirstSort(kind) { return ENT_FIRST_SORT[kind] || 'amount'; }
+
 const ENT = {
   kind: 'client', tab: '실적', year: '', month: '', q: '', tax: '',
-  sort: 'amount',          // 기본은 금액 많은 순
+  sort: 'name',            // 고객사부터 열리므로 가나다순
   /* 몇 줄씩 · 몇 쪽 (대표님 지시 2026-10-29) */
   size: 10, page: 1,
   open: null, detail: null
@@ -6593,22 +6622,24 @@ function entLabel(kind) { return (ENT_DEFS[kind] || {}).title || kind; }
 async function renderEntity(kind) {
   if (kind && kind !== ENT.kind) {
     ENT.kind = kind; ENT.open = null; ENT.detail = null;
-    ENT.q = ''; ENT.tax = ''; ENT.tab = '실적'; ENT.sort = 'amount';
+    ENT.q = ''; ENT.tax = ''; ENT.tab = '실적'; ENT.sort = entFirstSort(kind);
     ENT.page = 1;
   }
   const def = ENT_DEFS[ENT.kind];
   const content = document.getElementById('main-content');
 
   if (ENT.tab === '명단') {
-    // 명단 탭은 기존 관리 화면을 그대로 쓴다
+    /*
+     * 명단 탭은 기존 관리 화면을 그대로 쓴다.
+     * 탭은 그 화면이 제 머리에 붙인다 (entTabHead) — 밖에서 얹어 주면
+     * 그 화면이 쪽을 넘기며 혼자 다시 그릴 때 탭이 사라진다.
+     */
     content.innerHTML = '<div class="an-loading">불러오는 중...</div>';
-    const head = entHeader(def);
     if (def.manage === 'clients') await renderClients();
     else if (def.manage === 'instructors') await renderInstructors();
     else if (def.manage === 'partners') await renderPartners();
     else if (def.manage === 'cards') await renderCards();
     else content.innerHTML = '';
-    content.insertAdjacentHTML('afterbegin', head);
     return;
   }
 
@@ -6677,6 +6708,28 @@ async function renderEntity(kind) {
 function setEntSize(v) { ENT.size = pageSize(v); ENT.page = 1; renderEntity(); }
 /** 몇 쪽을 볼지 */
 function goEntPage(n) { ENT.page = n; renderEntity(); toTop(); }
+
+/*
+ * 관리 화면(고객사·강사·협력사·법인카드)이 제 머리에 「실적 / 명단」 탭을 붙인다.
+ *
+ * 명단 탭은 그 관리 화면을 그대로 빌려 쓴다. 전에는 renderEntity 가
+ * 다 그린 뒤 **밖에서** 탭을 얹어 줬는데, 그 화면이 쪽을 넘기며 혼자
+ * 다시 그리면 탭이 사라졌다. (대표님이 알려주심 2026-11-02)
+ *
+ * 직원이 보는 명단 화면(list-partner 등)과 관리자 메뉴의 관리 화면에는
+ * 탭이 없어야 하므로, 지금 보고 있는 것이 그 항목 화면일 때만 붙인다.
+ */
+const ENT_ROUTE = {
+  clients: 'ent-client', instructors: 'ent-instructor',
+  partners: 'ent-partner', cards: 'ent-card'
+};
+
+function entTabHead(manage) {
+  if (ENT.tab !== '명단') return '';
+  if (State.currentRoute !== ENT_ROUTE[manage]) return '';
+  const def = ENT_DEFS[ENT.kind];
+  return (def && def.manage === manage) ? entHeader(def) : '';
+}
 
 /** 제목 + 탭 */
 function entHeader(def) {
@@ -8184,6 +8237,7 @@ async function renderCards() {
   });
 
   content.innerHTML = [
+    entTabHead('cards'),
     '<div class="page-header">',
     '  <div><h2>법인카드 명단</h2>',
     '    <div class="subtitle">카드 뒤 4자리로 매입·경비에 적습니다. 어느 카드인지 알 수 있게 카드사와 소지자를 함께 적어두세요.</div></div>',
