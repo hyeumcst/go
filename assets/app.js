@@ -7969,7 +7969,7 @@ function renderInvoices() {
       + '<button type="button" class="btn btn-outline btn-sm" onclick="addInvItem(\'' + id + '\')">＋ 항목 추가</button>'
       + '<button type="button" class="btn btn-ghost btn-sm" onclick="fillInvItems(\'' + id + '\')">매출에서 가져오기</button>'
       // 자동계산으로 쓸지, 금액을 직접 적을지
-      + '<span class="ii-modes" title="자동계산은 단가 × 수량 으로 냅니다. 수기작성은 공급가액을 직접 적습니다.">'
+      + '<span class="ii-modes" title="자동계산은 단가 × 수량 으로 냅니다. 수기작성은 공급가액을 직접 적습니다 (수량 · 단가는 적어 두기만 합니다).">'
       +   '<i>작성</i>' + writeBtn('자동계산') + writeBtn('수기작성')
       + '</span>'
       + '<button type="button" class="btn btn-ghost btn-sm" onclick="resetInvItems(\'' + id + '\')">↺ 초기화</button>'
@@ -7983,12 +7983,17 @@ function renderInvoices() {
       items.forEach(function (r, ri) {
         const c = invItemCalc(r, mode);
         const inp = function (field, val, cls, ph, elid) {
-          // 수기작성에서는 수량·단가를 쓰지 않으므로 잠가 둔다
-          const off = byHand && (field === 'qty' || field === 'price');
-          return '<input type="text" class="form-input ' + (cls || '') + (off ? ' off' : '') + '"'
+          /*
+           * 수기작성이라고 수량 · 단가를 잠그지 않는다 — 잠그면
+           * 「매출에서 가져오기」로 들어온 숫자를 지울 수가 없다.
+           * (대표님 지시 2026-11-02)
+           */
+          return '<input type="text" class="form-input ' + (cls || '') + '"'
             + (elid ? ' id="' + elid + '"' : '')
-            + (off ? ' disabled title="수기작성에서는 쓰지 않습니다"' : '')
-            + ' placeholder="' + (off ? '—' : (ph || '')) + '" value="' + esc(val == null ? '' : val) + '"'
+            + (byHand && (field === 'qty' || field === 'price')
+              ? ' title="공급가액은 손으로 적은 값을 씁니다. 이 칸은 계산서에 적히기만 합니다"'
+              : '')
+            + ' placeholder="' + (ph || '') + '" value="' + esc(val == null ? '' : val) + '"'
             + ' oninput="updateInvItem(\'' + id + '\',' + ri + ',\'' + field + '\', this.value)">';
         };
         out.push('<tr>'
