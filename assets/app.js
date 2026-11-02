@@ -4008,6 +4008,8 @@ function expenseCard(item) {
   // 이름 (자동완성)
   out.push('<div class="rf rf-name autocomplete-wrapper"><span class="cap">이름 / 업체명</span>'
     + '<input type="text" class="form-input" placeholder="입력" value="' + esc(item.name || '') + '"'
+    /* 고치기 전의 이름 — 명부에서 골랐을 때 세율까지 바꿀지 가르는 값 */
+    + ' data-was="' + esc(item.name || '') + '"'
     + ' oninput="updateExp(\'' + id + '\', \'name\', this.value)"'
     + ' onkeyup="debounceNameSearch(this, \'' + id + '\', \'' + cat + '\')"'
     /* 누르면 다시 나온다 — 한 번 고른 뒤에도 (대표님 지시 2026-10-27) */
@@ -5005,13 +5007,36 @@ async function nameSearch_(inputEl, itemId, category) {
 
         const t = State.expenseItems.find(function (x) { return x._id === itemId; });
         if (t) {
+          /*
+           * 이름이 이미 적혀 있던 줄이면 **이름만** 고친다.
+           * (대표님 지시 2026-11-02)
+           *   "잘못된 강사명을 저장되어진 올바른 강사명으로 수정하니까
+           *    세율처리가 변경이 되네,, 이거 변경 안되도록 해줘,,
+           *    강사명을 수정하면 강사명만 수정되는 걸로"
+           *
+           * 이름을 바로잡는 것은 그 줄을 다시 짜는 것이 아니다. 그런데
+           * 명부의 기본세율·기본단가·소속을 덮어쓰고 있었다. 이미 맞춰
+           * 둔 세율이 말없이 바뀌면 그 줄의 세금과 실지급액이 함께
+           * 틀어지고, 저장하기 전에는 눈치채기도 어렵다.
+           *
+           * 빈 줄에 처음 이름을 넣을 때만 명부의 값을 따라 적는다 —
+           * 그때는 고치는 것이 아니라 채우는 것이라 도움이 된다.
+           */
+          const fixing = String(inputEl.dataset.was || '').trim() !== '';
+
           t.name = picked.name;
-          /* 강사 번호는 강사 명부에서 온 것만 — 협력사를 강사로 적으면 통계가 틀린다 */
+          /*
+           * 강사 번호는 이름을 따라간다 — 이름과 한 몸이라 떼면
+           * 강사별 매입이 엉뚱한 분께 쌓인다. (강사 명부에서 온 것만)
+           */
           t.instructor_id = (where === '강사' && picked.id) ? picked.id : null;
-          if (picked.affiliation) t.affiliation = picked.affiliation;
-          if (picked.default_tax_type) t.tax_type = picked.default_tax_type;
-          if (picked.default_unit_price && !t.is_manual) t.unit_price = picked.default_unit_price;
-          if (where === '강사' && !t.unit) t.unit = '시간';
+
+          if (!fixing) {
+            if (picked.affiliation) t.affiliation = picked.affiliation;
+            if (picked.default_tax_type) t.tax_type = picked.default_tax_type;
+            if (picked.default_unit_price && !t.is_manual) t.unit_price = picked.default_unit_price;
+            if (where === '강사' && !t.unit) t.unit = '시간';
+          }
         }
         renderExpenseItems();
       }, true);
