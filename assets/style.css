@@ -1131,6 +1131,11 @@ html { font-size: 16px; }
 .ct-row .nm { font-weight: 700; color: var(--text-primary); }
 .ct-row .ps { color: var(--text-secondary); font-size: 0.85rem; }
 .ct-row .dp { color: var(--text-muted); font-size: 0.82rem; }
+/* 이메일은 길다 — 칸을 넘기지 않고 끝을 … 로 접는다 (2026-11-02) */
+.ct-row .em {
+  color: var(--text-muted); font-size: 0.82rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
 .ct-row .btn { padding: 0.25rem 0.5rem; font-size: 0.8rem; }
 .ct-row .del { background: transparent; border: none; color: var(--text-muted);
   cursor: pointer; font-size: 0.9rem; padding: 0 0.2rem; }

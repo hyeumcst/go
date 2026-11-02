@@ -29,6 +29,8 @@ const SCHEMA = {
     { n: 'is_active', k: 'n' },
     { n: 'created_at', k: 't' },
     { n: 'department', k: 't' },
+    /* 계산서를 보낼 곳. 대표님 지시 2026-11-02 — 엑셀에서는 「개인정보 제외」로 받으면 빈다 */
+    { n: 'email', k: 't' },
   ],
   corp_cards: [
     { n: 'id', k: 'n' },
@@ -2462,6 +2464,21 @@ function writeExpenses(projectId, expenses) {
 /* ═══════════════════════ 엔드포인트 ═══════════════════════ */
 
 /**
+ * 화면에 보여줄 담당자 이름 — 「김민수 과장」. (대표님 지시 2026-11-02)
+ *
+ * 이름과 직급이 따로 떨어져 있어서, 목록에서는 이름만 보였다.
+ * ★ 저장할 때 쓰는 contact_name 은 이름만 그대로 둔다 —
+ *   이름으로 담당자를 찾아내는 자리(resolveContact_)가 있어서,
+ *   직급이 붙은 이름이 넘어가면 담당자가 하나 더 생긴다.
+ */
+function contactLabel_(c) {
+  if (!c) return '';
+  var nm = String(c.name || '').trim();
+  var ps = String(c.position || '').trim();
+  return ps ? nm + ' ' + ps : nm;
+}
+
+/**
  * 과정마다 가장 이른 세금계산서 발행일 — { 과정번호: 'YYYY-MM-DD' }
  *
  * 기간 거르개에서도 쓰이므로 거르기 **전에** 한 번 모아 둔다.
@@ -2485,30 +2502,67 @@ function firstIssueMap_() {
  * 그래서 일정이 없으면 **세금계산서 발행일**로 보고, 그것도 없으면
  * 등록한 날로 본다. 일정이 있는 과정은 지금까지와 똑같다.
  */
-function listInPeriod_(p, issue, start, end) {
-  if (schedOf(p).length) return overlapsPeriod(p, start, end);
+function listInPeriod_(p, issue, start, end, basis) {
   if (!start && !end) return true;
-  var d = String(issue || p.created_at || '').slice(0, 10);
+  if (basis === 'issue')   return inRange_(issue, start, end);
+  if (basis === 'created') return inRange_(p.created_at, start, end);
+  if (schedOf(p).length) return overlapsPeriod(p, start, end);
+  return inRange_(issue || p.created_at, start, end);
+}
+
+/** 날짜 하나가 기간 안에 드는가 */
+function inRange_(day, start, end) {
+  var d = String(day || '').slice(0, 10);
   if (!d) return false;
   if (start && d < start) return false;
   if (end && d > end) return false;
   return true;
 }
 
-/** 그 과정이 거르개에서 어느 달에 들어가는가 (교육일정이 없으면 발행일) */
-function listMonthsOf_(p, issue) {
+/** 날짜 하나가 든 달 — 없으면 빈 목록 */
+function monthOne_(day) {
+  var m = String(day || '').slice(0, 7);
+  return /^\d{4}-\d{2}$/.test(m) ? [m] : [];
+}
+
+/** 그 과정이 거르개에서 어느 달에 들어가는가 */
+function listMonthsOf_(p, issue, basis) {
+  if (basis === 'issue')   return monthOne_(issue);
+  if (basis === 'created') return monthOne_(p.created_at);
   var ms = monthsOf(p);
   if (ms.length) return ms;
-  var d = String(issue || p.created_at || '').slice(0, 7);
-  return /^\d{4}-\d{2}$/.test(d) ? [d] : [];
+  return monthOne_(issue || p.created_at);
 }
+
+/*
+ * 정렬 기준이 곧 「달을 찾는 기준」이다. (대표님 지시 2026-11-02)
+ *
+ *   발행일 기준 + 2026년 10월  →  10월에 **끊은** 계산서가 있는 과정
+ *   교육일 기준 + 2026년 10월  →  10월에 **한** 교육
+ *   등록일 기준 + 2026년 10월  →  10월에 **적은** 과정
+ *
+ * 전에는 늘 교육일정으로만 찾았다. 그래서 「10월에 끊은 계산서」를
+ * 보려면 눈으로 세어야 했다.
+ *
+ * 금액·이름 순(매출 기준 등)은 날짜가 아니므로 교육일정으로 둔다.
+ */
+var LIST_BASIS = {
+  date_desc: 'sched',  date_asc: 'sched',
+  issue_desc: 'issue', issue_asc: 'issue',
+  recent: 'created',   oldest: 'created'
+};
+
+function listBasis_(sort) { return LIST_BASIS[sort] || 'sched'; }
 
 /** 과정 목록 — 검색·월·담당자·회사·구분·정렬 */
 function projectsList(u, q) {
   q = q || {};
-  var cName = {}, ctName = {}, uName = {};
+  var cName = {}, ctName = {}, ctLabel = {}, uName = {};
   Db.all('clients').forEach(function (c) { cName[c.id] = c.name; });
-  Db.all('contacts').forEach(function (c) { ctName[c.id] = c.name; });
+  Db.all('contacts').forEach(function (c) {
+    ctName[c.id] = c.name;
+    ctLabel[c.id] = contactLabel_(c);
+  });
   Db.all('users').forEach(function (x) { uName[x.id] = x.name; });
 
   var kw = String(q.q || '').trim().toLowerCase();
@@ -2544,18 +2598,21 @@ function projectsList(u, q) {
   /* 발행일은 기간 거르개에도 쓰이므로 거르기 전에 모아 둔다 */
   var firstIssue = firstIssueMap_();
 
+  /* 고른 정렬 기준이 곧 달을 찾는 기준이다 */
+  var basis = listBasis_(q.sort);
+
   var rows = Db.all('projects').filter(function (p) {
     if (noExpense && !noExpense[p.id]) return false;
-    if (!listInPeriod_(p, firstIssue[p.id], q.start_date, q.end_date)) return false;
+    if (!listInPeriod_(p, firstIssue[p.id], q.start_date, q.end_date, basis)) return false;
     if (q.month && /^\d{4}-\d{2}$/.test(q.month)) {
-      if (!listInPeriod_(p, firstIssue[p.id], q.month + '-01', q.month + '-31')) return false;
+      if (!listInPeriod_(p, firstIssue[p.id], q.month + '-01', q.month + '-31', basis)) return false;
     }
     if (q.type && p.type !== q.type) return false;
     if (q.company && p.company !== q.company) return false;
     if (q.client_id && p.client_id !== Number(q.client_id)) return false;
     if (q.manager && p.manager !== q.manager) return false;
     if (kw) {
-      var hay = [p.course_name, cName[p.client_id], ctName[p.contact_id], p.memo, p.manager]
+      var hay = [p.course_name, cName[p.client_id], ctLabel[p.contact_id], p.memo, p.manager]
         .map(function (x) { return String(x || '').toLowerCase(); }).join(' ');
       if (hay.indexOf(kw) < 0) return false;
     }
@@ -2671,6 +2728,12 @@ function projectsList(u, q) {
 
   return {
     projects: out,
+    /*
+     * 이 기준으로 고를 수 있는 달. (대표님 지시 2026-11-02)
+     * 기준을 바꾸면 달 목록도 바뀌므로 목록과 **함께** 내려보낸다 —
+     * 따로 물으면 화면에 뜬 달과 실제로 거른 달이 어긋난다.
+     */
+    months: listMonthsIn_(u, q),
     totals: {
       count: agg.total, sales: agg.sales, vat: agg.vat, expenses: agg.expenses,
       profit: agg.sales - agg.expenses, unpaid: unpaid,
@@ -2684,17 +2747,33 @@ function projectsList(u, q) {
   };
 }
 
-/** 필터에 쓸 목록 (월 · 담당자 · 회사) */
-function projectsFilters(u) {
-  var months = {}, managers = {};
-  /* 교육일정이 없는 과정은 발행일 달로 넣는다 — 안 그러면 고를 수가 없다 */
+/**
+ * 고른 기준으로 고를 수 있는 달 — 최근 달이 맨 앞.
+ *
+ * 거르기 **전**의 모든 과정에서 모은다. 거른 뒤에 모으면 10월을
+ * 고른 순간 목록에 10월만 남아 다른 달로 옮겨 갈 수가 없다.
+ */
+function listMonthsIn_(u, q) {
+  var basis = listBasis_((q || {}).sort);
   var firstIssue = firstIssueMap_();
+  var months = {};
   Db.all('projects').forEach(function (p) {
-    listMonthsOf_(p, firstIssue[p.id]).forEach(function (m) { months[m] = true; });
+    /* 못 보는 과정의 달은 내놓지 않는다 — 골라도 한 건도 안 나온다 */
+    if (!canSeeOthers(u) && p.created_by !== u.id) return;
+    listMonthsOf_(p, firstIssue[p.id], basis).forEach(function (m) { months[m] = true; });
+  });
+  return Object.keys(months).sort().reverse();
+}
+
+/** 필터에 쓸 목록 (월 · 담당자 · 회사) */
+function projectsFilters(u, q) {
+  var managers = {};
+  Db.all('projects').forEach(function (p) {
+    if (!canSeeOthers(u) && p.created_by !== u.id) return;
     if (String(p.manager || '').trim()) managers[p.manager] = true;
   });
   return {
-    months: Object.keys(months).sort().reverse(),
+    months: listMonthsIn_(u, q),
     managers: Object.keys(managers).sort(),
     companies: COMPANIES
   };
@@ -2992,12 +3071,14 @@ function contactsCreate(u, b) {
 
   var r = Db.insert('contacts', {
     client_id: cid, name: nm,
-    position: trim_(b.position), department: trim_(b.department), is_active: 1
+    position: trim_(b.position), department: trim_(b.department),
+    email: trim_(b.email), is_active: 1
   });
   return {
     contact: {
       id: r.id, client_id: cid, name: nm,
-      position: trim_(b.position), department: trim_(b.department)
+      position: trim_(b.position), department: trim_(b.department),
+      email: trim_(b.email)
     }
   };
 }
@@ -3007,6 +3088,7 @@ function contactsUpdate(u, id, b) {
   if (b.name !== undefined) patch.name = trim_(b.name);
   if (b.position !== undefined) patch.position = trim_(b.position);
   if (b.department !== undefined) patch.department = trim_(b.department);
+  if (b.email !== undefined) patch.email = trim_(b.email);
   if (b.is_active !== undefined) patch.is_active = b.is_active ? 1 : 0;
   if (Object.keys(patch).length) Db.update('contacts', id, patch);
   return { message: '담당자 정보가 수정되었습니다.' };
@@ -4416,9 +4498,12 @@ function invoiceRecipients(u, q) {
       var hit = past[String(c.name || '').trim().toLowerCase()] || {};
       add({
         name: String(c.name || '').trim(),
-        email: hit.email || '',
-        /* 직급·부서는 동명이인을 가리는 데 쓴다 */
-        affiliation: [c.position, c.department].filter(Boolean).join(' · '),
+        /* 담당자에 적어 둔 이메일이 먼저다 — 지난 계산서의 것은 예비 (2026-11-02) */
+        email: String(c.email || '').trim() || hit.email || '',
+        /* 직급은 이름 옆에 붙여 보여준다 (대표님 지시 2026-11-02) */
+        position: String(c.position || '').trim(),
+        /* 부서는 동명이인을 가리는 데 쓴다 */
+        affiliation: String(c.department || '').trim(),
         _from: '담당자'
       });
     });
@@ -4439,9 +4524,10 @@ function invoiceRecipients(u, q) {
   // 관리자가 아니면 가린 값만 내보낸다
   if (isAdmin(u)) return { recipients: list };
   var masked = maskRecipients(list);
-  /* 가려도 「어디서 왔는지」와 직급은 남긴다 — 누구인지 가리는 데 필요하다 */
+  /* 가려도 「어디서 왔는지」와 직급·부서는 남긴다 — 누구인지 가리는 데 필요하다 */
   masked.forEach(function (m, i) {
     m._from = list[i]._from;
+    m.position = list[i].position || '';
     m.affiliation = list[i].affiliation || '';
   });
   return { recipients: masked };
@@ -5432,6 +5518,18 @@ function summaryCols() {
     ['연수원비', 'ro', 1],
     ['매출 줄수', 'ro'],
     ['매입 줄수', 'ro'],
+    /*
+     * 세금계산서를 끊은 날. (대표님 지시 2026-11-02)
+     *
+     * 「과정」 시트에는 계산서 줄마다 발행일이 있지만, 이 요약 시트에는
+     * 없어서 엑셀에서 「10월에 끊은 것」을 고를 수가 없었다.
+     *
+     * 한 과정에 계산서가 여러 장일 수 있어 두 칸으로 둔다 —
+     * 한 칸만 두면 10월과 11월에 걸쳐 끊은 과정이 10월에만 보인다.
+     * 한 장뿐이면 두 칸이 같은 날이다.
+     */
+    ['계산서 발행일', 'ro'],
+    ['마지막 발행일', 'ro'],
     ['계산서 수', 'ro'],
     ['미수금', 'ro', 1]
   ];
@@ -5441,11 +5539,17 @@ function summarySheetData(ctx) {
   var headers = summaryCols().map(function (c) { return c[0]; });
 
   var nSales = {}, nExp = {}, nInv = {}, unpaid = {};
+  var firstIss = {}, lastIss = {};
   Db.all('project_sales').forEach(function (r) { nSales[r.project_id] = (nSales[r.project_id] || 0) + 1; });
   Db.all('project_expenses').forEach(function (r) { nExp[r.project_id] = (nExp[r.project_id] || 0) + 1; });
   Db.all('project_invoices').forEach(function (r) {
     nInv[r.project_id] = (nInv[r.project_id] || 0) + 1;
     if (!r.paid_date) unpaid[r.project_id] = (unpaid[r.project_id] || 0) + (r.total_amount || 0);
+    /* 끊은 날이 적힌 것만 센다 — 아직 안 끊은 장은 날이 없다 */
+    var d = String(r.issue_date || '').slice(0, 10);
+    if (!d) return;
+    if (!firstIss[r.project_id] || d < firstIss[r.project_id]) firstIss[r.project_id] = d;
+    if (!lastIss[r.project_id]  || d > lastIss[r.project_id])  lastIss[r.project_id]  = d;
   });
 
   var rows = Db.all('projects').slice().sort(function (a, b) {
@@ -5476,6 +5580,8 @@ function summarySheetData(ctx) {
       p.sale_venue || 0,
       nSales[p.id] || 0,
       nExp[p.id] || 0,
+      firstIss[p.id] || '',
+      lastIss[p.id] || '',
       nInv[p.id] || 0,
       unpaid[p.id] || 0
     ];
@@ -6098,6 +6204,8 @@ function bulkSheets() {
       cols: [
         ['번호', 'id', 'ref'], ['고객사번호', 'client_id', 'n'], ['고객사명', '_client', 'ro'],
         ['담당자명', 'name', 't'], ['직급', 'position', 't'], ['부서', 'department', 't'],
+        /* 「개인정보 제외」로 받으면 저절로 빈다 (bulkCell_ 이 email 칸을 가린다) */
+        ['이메일', 'email', 't'],
         ['사용', 'is_active', 'n']
       ]
     },
@@ -7190,7 +7298,7 @@ function route_(u, method, path, b, q) {
    * 'filters' 를 ':id' 보다 먼저 봐야 한다 (안 그러면 id 로 읽힌다)
    */
   if (head === 'projects') {
-    if (GET && a === 'filters') return projectsFilters(u);
+    if (GET && a === 'filters') return projectsFilters(u, q);
     if (GET && !a) return projectsList(u, q);
     if (GET && a) return projectsGet(u, a);
     if (POST && !a) return projectsCreate(u, b);

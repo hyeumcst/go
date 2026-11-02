@@ -2187,6 +2187,33 @@ function peopleLine(byPerson, projects) {
 }
 
 // ═══════════ 과정 목록 ═══════════
+/*
+ * 과정 목록의 「기준」. (대표님 지시 2026-11-02)
+ *
+ * 전에는 「최근 등록순 / 오래된 등록순 / 교육일 내림차순 / …」 처럼
+ * 오름·내림을 따로 골랐다. 쓰시지 않는 쪽이 절반이라 칸만 길었다.
+ * 이제는 **기준만** 고르고 늘 큰 것(최근 것)이 맨 위로 온다.
+ *
+ * 그리고 이 기준이 곧 **달을 찾는 기준**이다 —
+ * 「발행일 기준」으로 두고 2026년 10월을 고르면
+ * 10월에 세금계산서를 끊은 과정이 나온다.
+ */
+const LIST_SORTS = [
+  ['date_desc',   '교육일 기준'],
+  ['issue_desc',  '발행일 기준'],
+  ['recent',      '등록일 기준'],
+  ['sales_desc',  '매출 기준'],
+  ['profit_desc', '이익 기준'],
+  ['client',      '고객사명 기준'],
+  ['course',      '과정명 기준']
+];
+
+/* 달을 무엇으로 찾는지 — 화면에 그대로 적어 드린다 */
+const LIST_BASIS_TEXT = {
+  date_desc: '교육일정', issue_desc: '세금계산서 발행일', recent: '등록일'
+};
+function listBasisName() { return LIST_BASIS_TEXT[LIST.sort] || '교육일정'; }
+
 const LIST = {
   company: '',
   /*
@@ -2259,11 +2286,10 @@ function listQuery() {
 async function renderProjectList() {
   const content = document.getElementById('main-content');
 
-  // 필터 선택지는 처음 한 번만 받아온다
-  if (LIST.months.length === 0 && LIST.managers.length === 0) {
+  // 담당자 목록은 처음 한 번만 받아온다 (달 목록은 아래에서 함께 받는다)
+  if (LIST.managers.length === 0) {
     try {
       const f = await API.getProjectFilters();
-      LIST.months = f.months || [];
       LIST.managers = f.managers || [];
     } catch (e) {}
   }
@@ -2272,6 +2298,26 @@ async function renderProjectList() {
   try {
     data = await API.getProjects(listQuery());
   } catch (e) { showToast(e.message, 'error'); return; }
+
+  /*
+   * 고를 수 있는 달은 **기준에 따라 달라진다** — 그래서 목록과 함께 받는다.
+   * (대표님 지시 2026-11-02)
+   */
+  LIST.months = data.months || [];
+
+  /*
+   * 기준을 바꿨더니 고른 달이 그 기준에는 없을 때.
+   *   교육일 기준 2026년 10월  →  발행일 기준으로 바꿨는데 10월에 끊은 게 없다
+   * 말없이 두면 칸에는 「전체 기간」이 떠 있는데 10월만 걸러져 보여
+   * 왜 한 건도 없는지 알 수 없다. 기간을 풀고 그 사실을 알려드린다.
+   */
+  if (LIST.month && LIST.months.indexOf(LIST.month) < 0) {
+    const dropped = LIST.month.replace('-', '년 ') + '월';
+    LIST.month = '';
+    LIST.page = 1;
+    showToast('「' + listBasisName() + '」 기준에는 ' + dropped + ' 자료가 없어 기간을 「전체」로 바꿨습니다.', 'info');
+    return renderProjectList();
+  }
 
   const t = data.totals || {};
 
@@ -2331,12 +2377,6 @@ async function renderProjectList() {
     '    <input type="text" id="lf-q" class="form-input" placeholder="과정명 · 고객사 · 담당자 · 메모 검색" value="' + esc(LIST.q) + '"'
     + ' oninput="onListSearch(this.value)">',
     '  </div>',
-    /* 무엇을 기준으로 거르는지 적어 둔다 — 안 적어 두면 왜 안 나오는지 알 수 없다 */
-    '  <select class="form-select" title="교육일정 기준입니다. 교육일정이 없는 건은 세금계산서 발행일로 찾습니다."'
-  + ' onchange="setListFilter(\'month\', this.value)">',
-    opt('', '전체 기간', LIST.month),
-    LIST.months.map(function (m) { return opt(m, m.replace('-', '년 ') + '월', LIST.month); }).join(''),
-    '  </select>',
     '  <select class="form-select" onchange="setListFilter(\'manager\', this.value)">',
     opt('', '담당자 전체', LIST.manager),
     LIST.managers.map(function (m) { return opt(m, m, LIST.manager); }).join(''),
@@ -2345,16 +2385,19 @@ async function renderProjectList() {
     opt('', '구분 전체', LIST.type),
     ['교육', '특강', '기타'].map(function (x) { return opt(x, x, LIST.type); }).join(''),
     '  </select>',
-    '  <select class="form-select" onchange="setListFilter(\'sort\', this.value)">',
-    [
-      ['recent', '최근 등록순'], ['oldest', '오래된 등록순'],
-      ['date_desc', '교육일 내림차순'], ['date_asc', '교육일 오름차순'],
-      /* 세금계산서를 끊은 날 기준 (대표님 지시 2026-10-28) */
-      ['issue_desc', '발행일 내림차순'], ['issue_asc', '발행일 오름차순'],
-      ['sales_desc', '매출 높은순'], ['sales_asc', '매출 낮은순'],
-      ['profit_desc', '이익 높은순'], ['profit_asc', '이익 낮은순'],
-      ['client', '고객사명순'], ['course', '과정명순']
-    ].map(function (o) { return opt(o[0], o[1], LIST.sort); }).join(''),
+    /*
+     * 기준을 **달보다 먼저** 고르게 둔다. (대표님 지시 2026-11-02)
+     * 기준이 곧 달을 찾는 기준이라, 달을 먼저 고르면 다시 골라야 한다.
+     */
+    '  <select class="form-select" title="고른 기준이 달을 찾는 기준도 됩니다. 늘 최근 것이 맨 위로 옵니다."'
+  + ' onchange="setListFilter(\'sort\', this.value)">',
+    LIST_SORTS.map(function (o) { return opt(o[0], o[1], LIST.sort); }).join(''),
+    '  </select>',
+    /* 무엇을 기준으로 거르는지 적어 둔다 — 안 적어 두면 왜 안 나오는지 알 수 없다 */
+    '  <select class="form-select" title="「' + listBasisName() + '」 기준으로 찾습니다."'
+  + ' onchange="setListFilter(\'month\', this.value)">',
+    opt('', '전체 기간', LIST.month),
+    LIST.months.map(function (m) { return opt(m, m.replace('-', '년 ') + '월', LIST.month); }).join(''),
     '  </select>',
     ((LIST.q || LIST.month || LIST.manager || LIST.type || LIST.company)
       ? '<button class="btn btn-ghost btn-sm" onclick="resetListFilter()">✕ 조건 지우기</button>'
@@ -4070,6 +4113,19 @@ function setupAmountInputs() {
  * @param {object|null} known      이미 알고 있는 담당자 정보 (없으면 서버에서 가져온다)
  * @param {function|null} after    저장 후 실행 (없으면 고객사 관리 화면을 다시 연다)
  */
+/**
+ * 화면에 보여줄 담당자 이름 — 「김민수 과장」. (대표님 지시 2026-11-02)
+ *
+ * ★ 저장할 때는 이 이름을 쓰지 않는다. 이름만으로 담당자를 찾아내는
+ *   자리가 있어서, 직급이 붙은 이름이 넘어가면 담당자가 하나 더 생긴다.
+ */
+function contactLabel(c) {
+  if (!c) return '';
+  const nm = String(c.name || '').trim();
+  const ps = String(c.position || '').trim();
+  return ps ? nm + ' ' + ps : nm;
+}
+
 async function openContactEditor(clientId, contactId, known, after) {
   if (!clientId) { showToast('고객사를 먼저 선택해주세요.', 'warning'); return; }
 
@@ -4095,7 +4151,13 @@ async function openContactEditor(clientId, contactId, known, after) {
     '  </div>',
     '  <div class="modal-body">',
     '    <div class="info-box">고객사 <b>' + esc(clientName) + '</b> 의 담당자입니다.<br>',
-    '    🔒 이메일·연락처는 개인정보라 저장하지 않습니다.</div>',
+    /*
+     * 이메일은 저장한다 (대표님 지시 2026-11-02) — 계산서를 보낼 곳이라
+     * 매번 다시 찾아 적으셔야 했다. 연락처는 지금도 받지 않는다.
+     * 엑셀로 받을 때 「개인정보 제외」를 고르시면 이메일은 빈 칸으로 나온다.
+     */
+    '    🔒 전화번호는 저장하지 않습니다. 이메일은 계산서를 보낼 때 쓰고,'
+  + ' 엑셀을 「개인정보 제외」로 받으면 빠집니다.</div>',
     '    <div class="form-group"><label class="form-label form-required">담당자 이름</label>',
     '      <input type="text" id="c-name" class="form-input" placeholder="예) 김민수" value="'
     + esc(target ? target.name : '') + '"></div>',
@@ -4107,6 +4169,10 @@ async function openContactEditor(clientId, contactId, known, after) {
     '        <input type="text" id="c-department" class="form-input" placeholder="예) 인재개발팀" value="'
     + esc(target ? target.department : '') + '"></div>',
     '    </div>',
+    '    <div class="form-group"><label class="form-label">이메일 (선택)</label>',
+    '      <input type="email" id="c-email" class="form-input" placeholder="예) minsu@example.com" value="'
+    + esc(target ? target.email : '') + '">',
+    '      <div class="form-hint">계산서 「받는사람」에서 이 이름을 고르면 이 이메일이 함께 들어갑니다.</div></div>',
     '  </div>',
     '  <div class="modal-footer">',
     '    <button class="btn btn-ghost" onclick="this.closest(\'.modal-overlay\').remove()">취소</button>',
@@ -4125,9 +4191,18 @@ async function submitContact(clientId, contactId) {
   const data = {
     name: document.getElementById('c-name').value.trim(),
     position: document.getElementById('c-position').value.trim(),
-    department: document.getElementById('c-department').value.trim()
+    department: document.getElementById('c-department').value.trim(),
+    email: (document.getElementById('c-email') || {}).value ? document.getElementById('c-email').value.trim() : ''
   };
   if (!data.name) { showToast('담당자 이름을 입력해주세요.', 'warning'); return; }
+  /*
+   * 이메일은 적으셨을 때만 꼴을 본다.
+   * 비워 두는 것은 괜찮지만, @ 가 빠진 것은 계산서가 안 가므로 막는다.
+   */
+  if (data.email && data.email.indexOf('@') < 1) {
+    showToast('이메일 모양이 아닙니다. 다시 확인해주세요.', 'warning');
+    return;
+  }
 
   try {
     let newId = contactId;
@@ -4229,10 +4304,16 @@ async function openClientModal(id) {
         (contacts.length === 0
           ? '<div class="empty-state" style="padding:1.2rem"><p>등록된 담당자가 없습니다.</p></div>'
           : contacts.map(function (ct) {
+            /*
+             * 이름과 직급을 붙여 보여준다 — 「김민수 과장」.
+             * 따로 떨어져 있어 한눈에 읽히지 않았다. (대표님 지시 2026-11-02)
+             * 빈 자리에는 이메일을 둔다 (없으면 알려 드린다).
+             */
             return '<div class="ct-row">'
-              + '<span class="nm">' + esc(ct.name) + '</span>'
-              + '<span class="ps">' + esc(ct.position || '-') + '</span>'
-              + '<span class="dp">' + esc(ct.department || '-') + '</span>'
+              + '<span class="nm">' + esc(contactLabel(ct)) + '</span>'
+              + '<span class="ps">' + esc(ct.department || '-') + '</span>'
+              + '<span class="em" title="' + esc(ct.email || '') + '">'
+              + esc(ct.email || '이메일 없음') + '</span>'
               + '<button type="button" class="btn btn-ghost btn-sm" onclick="editClientContact(' + id + ',' + ct.id + ')">✎</button>'
               + '<button type="button" class="del" onclick="dropClientContact(' + id + ',' + ct.id + ')" title="제외">✖</button>'
               + '</div>';
@@ -7598,8 +7679,9 @@ let recvSearchTimer = null;
  * 계산서 받는 사람 찾기.
  *
  * 그 과정의 고객사 담당자부터 보여준다 (대표님 지시 2026-10-28).
- * 대개 그분들께 보내기 때문이다. 담당자 표에는 이메일·연락처 칸이
- * 없어서, 지난 계산서에 같은 이름이 있으면 거기 적힌 것을 끌어다 준다.
+ * 대개 그분들께 보내기 때문이다. 담당자에 적어 둔 이메일을 먼저 쓰고,
+ * 안 적혀 있으면 지난 계산서에 같은 이름이 있는지 보고 거기 적힌 것을 끌어다 준다.
+ * (담당자 이메일 칸은 대표님 지시 2026-11-02 에 생겼다)
  *
  * 아직 아무것도 안 적었어도 그 고객사의 담당자는 보여준다 —
  * 이름을 기억해 내지 않아도 고를 수 있게.
@@ -7629,7 +7711,8 @@ function searchRecipient(el, id, i) {
       /* 담당자인지 지난 계산서에서 온 것인지 — 같은 이름이 둘 다 있을 수 있다 */
       const tag = p._from ? '<span class="ac-tag">' + esc(p._from) + '</span>' : '';
       return '<div class="autocomplete-item" onclick="pickRecipient(\'' + id + '\',' + i + ',' + k + ')">'
-        + '<div class="main-text">' + esc(p.name) + tag + '</div>'
+        /* 이름 옆에 직급을 붙여 보여준다 — 고르면 이름만 들어간다 */
+        + '<div class="main-text">' + esc(contactLabel(p)) + tag + '</div>'
         + (p.affiliation ? '<div class="sub-text">' + esc(p.affiliation) + '</div>' : '')
         + (sub ? '<div class="sub-text">' + esc(sub) + '</div>'
                : '<div class="sub-text muted">이메일·연락처 없음 — 적어주세요</div>')
