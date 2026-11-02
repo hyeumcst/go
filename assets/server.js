@@ -5339,17 +5339,6 @@ function groupCols() {
     ['받는사람', 't'],
     ['이메일', 't'],
     /* 연락처 칸은 뺐다 — 받지 않는 자료다 (대표님 지시 2026-10-28) */
-    /*
-     * 과정 줄에서도 발행일이 보여야 한다. (대표님 지시 2026-11-02)
-     *   "엑셀에 발행일은 과정요약뿐만 아니라 과정에서도 확인이 되어야 해"
-     *
-     * 계산서 줄에는 줄마다 「발행일」이 있지만, 과정 줄은 비어 있어서
-     * 과정만 추려 보면 언제 끊었는지 알 수가 없었다.
-     * 여러 장이면 처음과 마지막을 둘 다 적는다 — 한 칸만 두면
-     * 10월과 11월에 걸쳐 끊은 과정이 10월에만 보인다.
-     */
-    ['[자동] 계산서 발행일', 'ro'],
-    ['[자동] 마지막 발행일', 'ro'],
     ['[자동] 계산서 공급가액', 'ro', 1],
     ['[자동] 계산서 부가세', 'ro', 1],
     ['[자동] 계산서 합계', 'ro', 1],
@@ -5389,7 +5378,16 @@ function groupMap() {
         '비고': 'memo',
         '[자동] 과정 총매출': 'total_sales', '[자동] 과정 총매입': 'total_expenses',
         '[자동] 과정 이익': '_profit',
-        '[자동] 계산서 발행일': '_first_issue', '[자동] 마지막 발행일': '_last_issue',
+        /*
+         * 과정 줄에도 발행일을 적는다. (대표님 지시 2026-11-02)
+         *   "이 정보는 색이 칠해진 과정에 표기가 되어야 하는 거 아닌지"
+         *
+         * 칸을 따로 만들지 않고 **있던 「발행일」 칸**에 적는다 —
+         * 고객사·과정명을 딸린 줄에 옮겨 적어 두는 것과 같은 뜻이다.
+         * 여러 장이면 가장 이른 날이다 (나머지는 바로 아래 계산서 줄에 있다).
+         * ★ 보기용이라 여기서 고쳐도 반영되지 않는다 — 미리보기에서 알려 드린다.
+         */
+        '발행일': '_first_issue',
         '[자동] 과정 부가세': 'vat', '[자동] 과정 합계': 'total_with_vat'
       }
     },
@@ -5476,7 +5474,6 @@ function groupRow_(kind, rec, ctx, headers, parent) {
     if (k === '_dates') { row[i] = datesToText_(rec); return; }
     if (k === '_profit') { row[i] = (rec.total_sales || 0) - (rec.total_expenses || 0); return; }
     if (k === '_first_issue') { row[i] = (ctx.issueFirst || {})[rec.id] || ''; return; }
-    if (k === '_last_issue') { row[i] = (ctx.issueLast || {})[rec.id] || ''; return; }
     if (k === '_amount') {
       row[i] = (rec.vat_mode === '포함') ? (rec.total_amount || 0) : (rec.supply_amount || 0);
       return;
@@ -5516,10 +5513,8 @@ function issueRange_() {
 function groupSheetData(ctx) {
   var headers = groupCols().map(function (c) { return c[0]; });
 
-  /* 과정 줄에 적을 발행일 */
-  var iss = issueRange_();
-  ctx.issueFirst = iss.first;
-  ctx.issueLast = iss.last;
+  /* 과정 줄의 「발행일」 칸에 적을 날 (가장 이른 것) */
+  ctx.issueFirst = issueRange_().first;
 
   var sales = {}, exps = {}, invs = {};
   Db.all('project_sales').forEach(function (r) { (sales[r.project_id] = sales[r.project_id] || []).push(r); });
@@ -5800,6 +5795,19 @@ function groupDiff_(grid, ctx) {
           continue;
         }
         seen.projects[idCell] = true;
+        /*
+         * 과정 줄의 「발행일」은 아래 계산서 줄에서 끌어다 보여준 것이다.
+         * 여기서 고쳐도 반영되지 않으니, 조용히 넘기지 않고 알려 드린다.
+         * (고객사·과정명을 딸린 줄에서 고쳤을 때와 같은 뜻이다)
+         */
+        var echoWas = mineById['과정:' + idCell];
+        if (echoWas && at['발행일'] !== undefined) {
+          var di = headers.indexOf('발행일');
+          if (!sameValue_(line[at['발행일']], echoWas[di])) {
+            problems.push((r + 1) + '번째 줄: 「발행일」 은 아래 계산서 줄에서 고쳐주세요. '
+              + '(과정 줄의 이 칸은 보기용입니다)');
+          }
+        }
         var patch = groupPatch_(headers, at, kindOf, def, obj, mineById['과정:' + idCell], old);
         if (patch) plan.projects.edit.push({ id: idCell, row: r + 1, patch: patch, before: old });
       }
