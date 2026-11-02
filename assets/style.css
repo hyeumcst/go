@@ -2424,6 +2424,16 @@ code {
 .rline .rf input.need::placeholder { color: var(--text-muted); font-style: italic; }
 .autocomplete-item .sub-text.muted { color: var(--text-muted); font-style: italic; }
 
+/*
+ * 받는사람 찾기 — 이름 칸이 좁아서 목록이 세로로 접혀 읽을 수가 없었다.
+ * 칸 너비에 매이지 않게 오른쪽으로 넉넉히 편다. (대표님 지시 2026-11-02)
+ */
+.rf-rname .autocomplete-list { right: auto; min-width: 17rem; max-width: 26rem; }
+.rf-rname .autocomplete-item .main-text,
+.rf-rname .autocomplete-item .sub-text {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* 미리보기 — 청구/영수 줄 */
 .ht-claim-row {
   display: flex; align-items: center; gap: 0.4rem;

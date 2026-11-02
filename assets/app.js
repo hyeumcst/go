@@ -2377,27 +2377,32 @@ async function renderProjectList() {
     '    <input type="text" id="lf-q" class="form-input" placeholder="과정명 · 고객사 · 담당자 · 메모 검색" value="' + esc(LIST.q) + '"'
     + ' oninput="onListSearch(this.value)">',
     '  </div>',
-    '  <select class="form-select" onchange="setListFilter(\'manager\', this.value)">',
-    opt('', '담당자 전체', LIST.manager),
-    LIST.managers.map(function (m) { return opt(m, m, LIST.manager); }).join(''),
-    '  </select>',
-    '  <select class="form-select" onchange="setListFilter(\'type\', this.value)">',
-    opt('', '구분 전체', LIST.type),
-    ['교육', '특강', '기타'].map(function (x) { return opt(x, x, LIST.type); }).join(''),
-    '  </select>',
     /*
-     * 기준을 **달보다 먼저** 고르게 둔다. (대표님 지시 2026-11-02)
-     * 기준이 곧 달을 찾는 기준이라, 달을 먼저 고르면 다시 골라야 한다.
+     * 칸 차례 — 기간 · 기준 · 구분 · 담당자. (대표님 지시 2026-11-02)
+     *
+     * "우선 월을 선택하고 교육일 기준에서 선택을 하는 거라면
+     *  순서를 이렇게 하는게 맞을 것 같다"
+     *
+     * 고르시는 차례대로 왼쪽부터 둔다 — 달을 먼저 고르고, 그 달을
+     * 무엇으로 볼지(교육일 · 발행일 · 등록일)를 바로 옆에서 고르신다.
      */
-    '  <select class="form-select" title="고른 기준이 달을 찾는 기준도 됩니다. 늘 최근 것이 맨 위로 옵니다."'
-  + ' onchange="setListFilter(\'sort\', this.value)">',
-    LIST_SORTS.map(function (o) { return opt(o[0], o[1], LIST.sort); }).join(''),
-    '  </select>',
     /* 무엇을 기준으로 거르는지 적어 둔다 — 안 적어 두면 왜 안 나오는지 알 수 없다 */
     '  <select class="form-select" title="「' + listBasisName() + '」 기준으로 찾습니다."'
   + ' onchange="setListFilter(\'month\', this.value)">',
     opt('', '전체 기간', LIST.month),
     LIST.months.map(function (m) { return opt(m, m.replace('-', '년 ') + '월', LIST.month); }).join(''),
+    '  </select>',
+    '  <select class="form-select" title="고른 기준이 달을 찾는 기준도 됩니다. 늘 최근 것이 맨 위로 옵니다."'
+  + ' onchange="setListFilter(\'sort\', this.value)">',
+    LIST_SORTS.map(function (o) { return opt(o[0], o[1], LIST.sort); }).join(''),
+    '  </select>',
+    '  <select class="form-select" onchange="setListFilter(\'type\', this.value)">',
+    opt('', '구분 전체', LIST.type),
+    ['교육', '특강', '기타'].map(function (x) { return opt(x, x, LIST.type); }).join(''),
+    '  </select>',
+    '  <select class="form-select" onchange="setListFilter(\'manager\', this.value)">',
+    opt('', '담당자 전체', LIST.manager),
+    LIST.managers.map(function (m) { return opt(m, m, LIST.manager); }).join(''),
     '  </select>',
     ((LIST.q || LIST.month || LIST.manager || LIST.type || LIST.company)
       ? '<button class="btn btn-ghost btn-sm" onclick="resetListFilter()">✕ 조건 지우기</button>'

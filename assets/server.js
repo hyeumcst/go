@@ -4421,6 +4421,16 @@ function invoiceRequesters_() {
   return out.sort(function (a, b) { return cmp_(a.name, b.name); });
 }
 
+/*
+ * 받는사람 이름을 견줄 때 쓰는 열쇠 — 띄어쓰기를 뺀 소문자.
+ *
+ * 지난 계산서에는 「김재용차장」 처럼 직급을 붙여 적어 두신 경우가 많다.
+ * 띄어쓰기까지 따지면 「김재용 차장」 과 다른 사람이 되어 버린다.
+ */
+function recvKey_(s) {
+  return String(s || '').replace(/\s+/g, '').toLowerCase();
+}
+
 /**
  * 전에 계산서를 받았던 사람 찾기 (이름 첫 글자로)
  * 같은 이름이 여러 번 나오면 가장 최근에 쓴 이메일·연락처를 준다.
@@ -4445,6 +4455,7 @@ function invoiceRequesters_() {
  *
  * @param q  { q: 찾는 글자, client_id: 그 과정의 고객사 }
  */
+
 function invoiceRecipients(u, q) {
   q = q || {};
   var kw = String(q.q || '').trim().toLowerCase();
@@ -4473,7 +4484,7 @@ function invoiceRecipients(u, q) {
       unwrap_(r.recipients, []).forEach(function (p) {
         var name = String((p && p.name) || '').trim();
         if (!name) return;
-        var key = name.toLowerCase();
+        var key = recvKey_(name);
         if (past[key]) return;
         past[key] = {
           name: name,
@@ -4484,24 +4495,38 @@ function invoiceRecipients(u, q) {
 
   var seen = {}, list = [];
   var add = function (o) {
-    var key = String(o.name || '').toLowerCase();
+    var key = recvKey_(o.name);
     if (!key || seen[key]) return;
     seen[key] = true;
     list.push(o);
   };
+
+  /* 담당자로 이미 내놓은 분은 「지난 계산서」로 또 내놓지 않는다 */
+  var usedPast = {};
 
   /* ── ① 그 고객사의 담당자를 먼저 ── */
   if (clientId) {
     Db.where('contacts', function (c) {
       return c.is_active && Number(c.client_id) === clientId;
     }).sort(byName_).forEach(function (c) {
-      var hit = past[String(c.name || '').trim().toLowerCase()] || {};
+      var nm = String(c.name || '').trim();
+      var ps = String(c.position || '').trim();
+      /*
+       * 지난 계산서에는 「김재용차장」 처럼 직급을 붙여 적어 두신 것이 많다.
+       * 담당자 표에는 「김재용」 + 「차장」 으로 나뉘어 있어서, 그대로 견주면
+       * 한 분이 둘로 나오고 적어 두신 이메일도 못 찾는다.
+       * (대표님이 알려주심 2026-11-02 — 받는사람 칸에 같은 분이 두 번 떴다)
+       */
+      var k1 = recvKey_(nm), k2 = recvKey_(nm + ps);
+      var hit = past[k1] || (ps ? past[k2] : null) || {};
+      usedPast[k1] = true;
+      if (ps) usedPast[k2] = true;
       add({
-        name: String(c.name || '').trim(),
+        name: nm,
         /* 담당자에 적어 둔 이메일이 먼저다 — 지난 계산서의 것은 예비 (2026-11-02) */
         email: String(c.email || '').trim() || hit.email || '',
         /* 직급은 이름 옆에 붙여 보여준다 (대표님 지시 2026-11-02) */
-        position: String(c.position || '').trim(),
+        position: ps,
         /* 부서는 동명이인을 가리는 데 쓴다 */
         affiliation: String(c.department || '').trim(),
         _from: '담당자'
@@ -4509,14 +4534,21 @@ function invoiceRecipients(u, q) {
     });
   }
 
-  /* ── ② 그 뒤에 지난 계산서에서 ── */
+  /* ── ② 그 뒤에 지난 계산서에서 (담당자로 이미 나온 분은 빼고) ── */
   Object.keys(past).forEach(function (k) {
+    if (usedPast[k]) return;
     add(Object.assign({}, past[k], { _from: '지난 계산서' }));
   });
 
+  /*
+   * 찾기 — 「김재용」 으로도 「김재용 차장」 으로도 찾아진다.
+   * 이름 옆에 직급을 붙여 보여드리므로, 보이는 그대로 치셔도 나와야 한다.
+   */
   if (kw) {
+    var want = recvKey_(kw);
     list = list.filter(function (p) {
-      return String(p.name).toLowerCase().indexOf(kw) === 0;
+      return recvKey_(p.name).indexOf(want) === 0
+        || recvKey_(String(p.name) + String(p.position || '')).indexOf(want) === 0;
     });
   }
   list = list.slice(0, 12);
@@ -5307,6 +5339,17 @@ function groupCols() {
     ['받는사람', 't'],
     ['이메일', 't'],
     /* 연락처 칸은 뺐다 — 받지 않는 자료다 (대표님 지시 2026-10-28) */
+    /*
+     * 과정 줄에서도 발행일이 보여야 한다. (대표님 지시 2026-11-02)
+     *   "엑셀에 발행일은 과정요약뿐만 아니라 과정에서도 확인이 되어야 해"
+     *
+     * 계산서 줄에는 줄마다 「발행일」이 있지만, 과정 줄은 비어 있어서
+     * 과정만 추려 보면 언제 끊었는지 알 수가 없었다.
+     * 여러 장이면 처음과 마지막을 둘 다 적는다 — 한 칸만 두면
+     * 10월과 11월에 걸쳐 끊은 과정이 10월에만 보인다.
+     */
+    ['[자동] 계산서 발행일', 'ro'],
+    ['[자동] 마지막 발행일', 'ro'],
     ['[자동] 계산서 공급가액', 'ro', 1],
     ['[자동] 계산서 부가세', 'ro', 1],
     ['[자동] 계산서 합계', 'ro', 1],
@@ -5346,6 +5389,7 @@ function groupMap() {
         '비고': 'memo',
         '[자동] 과정 총매출': 'total_sales', '[자동] 과정 총매입': 'total_expenses',
         '[자동] 과정 이익': '_profit',
+        '[자동] 계산서 발행일': '_first_issue', '[자동] 마지막 발행일': '_last_issue',
         '[자동] 과정 부가세': 'vat', '[자동] 과정 합계': 'total_with_vat'
       }
     },
@@ -5431,6 +5475,8 @@ function groupRow_(kind, rec, ctx, headers, parent) {
     if (k === '_contact') { row[i] = rec.contact_id ? (ctx.contactName[rec.contact_id] || '') : ''; return; }
     if (k === '_dates') { row[i] = datesToText_(rec); return; }
     if (k === '_profit') { row[i] = (rec.total_sales || 0) - (rec.total_expenses || 0); return; }
+    if (k === '_first_issue') { row[i] = (ctx.issueFirst || {})[rec.id] || ''; return; }
+    if (k === '_last_issue') { row[i] = (ctx.issueLast || {})[rec.id] || ''; return; }
     if (k === '_amount') {
       row[i] = (rec.vat_mode === '포함') ? (rec.total_amount || 0) : (rec.supply_amount || 0);
       return;
@@ -5446,9 +5492,34 @@ function groupRow_(kind, rec, ctx, headers, parent) {
   return row;
 }
 
+/**
+ * 과정마다 처음·마지막 세금계산서 발행일.
+ *   { first: { 과정번호: 'YYYY-MM-DD' }, last: { … } }
+ *
+ * 「과정」 시트와 「과정 요약」 시트가 같은 것을 쓴다 —
+ * 두 군데에서 따로 세면 언젠가 어긋난다.
+ * 아직 안 끊은 장(발행일이 빈 장)은 세지 않는다.
+ */
+function issueRange_() {
+  var first = {}, last = {};
+  Db.all('project_invoices').forEach(function (r) {
+    var d = String(r.issue_date || '').slice(0, 10);
+    if (!d) return;
+    var p = r.project_id;
+    if (!first[p] || d < first[p]) first[p] = d;
+    if (!last[p] || d > last[p]) last[p] = d;
+  });
+  return { first: first, last: last };
+}
+
 /** 「과정」 시트 전체를 만든다 */
 function groupSheetData(ctx) {
   var headers = groupCols().map(function (c) { return c[0]; });
+
+  /* 과정 줄에 적을 발행일 */
+  var iss = issueRange_();
+  ctx.issueFirst = iss.first;
+  ctx.issueLast = iss.last;
 
   var sales = {}, exps = {}, invs = {};
   Db.all('project_sales').forEach(function (r) { (sales[r.project_id] = sales[r.project_id] || []).push(r); });
@@ -5539,17 +5610,14 @@ function summarySheetData(ctx) {
   var headers = summaryCols().map(function (c) { return c[0]; });
 
   var nSales = {}, nExp = {}, nInv = {}, unpaid = {};
-  var firstIss = {}, lastIss = {};
+  /* 발행일은 「과정」 시트와 같은 것을 쓴다 (issueRange_) */
+  var iss = issueRange_();
+  var firstIss = iss.first, lastIss = iss.last;
   Db.all('project_sales').forEach(function (r) { nSales[r.project_id] = (nSales[r.project_id] || 0) + 1; });
   Db.all('project_expenses').forEach(function (r) { nExp[r.project_id] = (nExp[r.project_id] || 0) + 1; });
   Db.all('project_invoices').forEach(function (r) {
     nInv[r.project_id] = (nInv[r.project_id] || 0) + 1;
     if (!r.paid_date) unpaid[r.project_id] = (unpaid[r.project_id] || 0) + (r.total_amount || 0);
-    /* 끊은 날이 적힌 것만 센다 — 아직 안 끊은 장은 날이 없다 */
-    var d = String(r.issue_date || '').slice(0, 10);
-    if (!d) return;
-    if (!firstIss[r.project_id] || d < firstIss[r.project_id]) firstIss[r.project_id] = d;
-    if (!lastIss[r.project_id]  || d > lastIss[r.project_id])  lastIss[r.project_id]  = d;
   });
 
   var rows = Db.all('projects').slice().sort(function (a, b) {
