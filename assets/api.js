@@ -241,6 +241,7 @@ const API = {
   getClients() { return this.get('/clients'); },
   createClient(data) { return this.post('/clients', data); },
   updateClient(id, data) { return this.put('/clients/' + id, data); },
+  deleteClient(id) { return this.delete('/clients/' + id); },
 
   // 고객사 담당자
   getContacts(clientId) { return this.get('/contacts' + this.qs({ client_id: clientId })); },

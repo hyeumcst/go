@@ -3037,6 +3037,36 @@ function clientsUpdate(u, id, b) {
   return { message: '고객사 정보가 수정되었습니다.' };
 }
 
+/*
+ * 명단에서 지운다. (대표님 지시 2026-11-02)
+ *   "고객사 / 협력사 / 강사 명단에 삭제 기능이 없어
+ *    잘못된 이름을 삭제해야 하는데 아무리 찾아도 없네"
+ *
+ * 두 갈래로 나뉜다 — 과정에 **한 번도 안 쓰인** 이름은 아주 지운다.
+ * 잘못 올라간 이름을 지우시려는 것이니, 「사용안함」으로만 돌려 두면
+ * 엑셀과 명단에 계속 남아 지웠다는 느낌이 안 든다.
+ * 반대로 이미 쓰인 이름은 아주 지우면 그 과정의 고객사가 사라지므로
+ * 「사용안함」으로만 돌리고, 몇 건에 쓰이고 있는지 알려 드린다.
+ */
+function clientsDelete(u, id) {
+  requireAdmin(u);
+  id = Number(id);
+  var row = Db.get('clients', id);
+  if (!row) throw new Error('없는 고객사입니다.');
+
+  var used = Db.where('projects', function (p) { return Number(p.client_id) === id; }).length;
+  if (used > 0) {
+    Db.update('clients', id, { is_active: 0 });
+    return { ok: true, deactivated: true, used: used };
+  }
+
+  /* 쓰인 적이 없으면 그 밑의 담당자까지 함께 지운다 — 남겨 두면 갈 곳이 없다 */
+  var ct = Db.where('contacts', function (c) { return Number(c.client_id) === id; });
+  ct.forEach(function (c) { Db.remove('contacts', c.id); });
+  Db.remove('clients', id);
+  return { ok: true, deactivated: false, contacts: ct.length };
+}
+
 /* ═══════════════ 고객사 담당자 ═══════════════
  * ⚠️ 이메일·연락처는 개인정보라 저장하지 않습니다. 이름·직급·부서만 다룹니다.
  */
@@ -3190,10 +3220,28 @@ function instructorsUpdate(u, id, b) {
   return { message: '강사 정보가 수정되었습니다.' };
 }
 
+/* 위 clientsDelete 와 같은 뜻이다 — 쓰인 적 없는 이름은 아주 지운다 */
 function instructorsDelete(u, id) {
   requireAdmin(u);
-  Db.update('instructors', id, { is_active: 0 });
-  return { message: '강사가 비활성화되었습니다.' };
+  id = Number(id);
+  var row = Db.get('instructors', id);
+  if (!row) throw new Error('없는 강사입니다.');
+  var nm = trim_(row.name);
+
+  /*
+   * 강의 줄에는 강사번호가 적히지만, 번호 없이 이름만 적힌 줄도 있다
+   * (옛 자료와 손으로 적은 줄). 둘 다 세야 멀쩡한 자료를 지우지 않는다.
+   */
+  var used = Db.where('project_expenses', function (e) {
+    return Number(e.instructor_id) === id || (!e.instructor_id && trim_(e.name) === nm);
+  }).length;
+
+  if (used > 0) {
+    Db.update('instructors', id, { is_active: 0 });
+    return { ok: true, deactivated: true, used: used };
+  }
+  Db.remove('instructors', id);
+  return { ok: true, deactivated: false };
 }
 
 /* ═══════════════ 협력사 ═══════════════ */
@@ -3245,10 +3293,29 @@ function partnersUpdate(u, id, b) {
   return { message: '협력사 정보가 수정되었습니다.' };
 }
 
+/* 위 clientsDelete 와 같은 뜻이다 — 쓰인 적 없는 이름은 아주 지운다 */
 function partnersDelete(u, id) {
   requireAdmin(u);
-  Db.update('partners', id, { is_active: 0 });
-  return { message: '협력사가 목록에서 제외되었습니다.' };
+  id = Number(id);
+  var row = Db.get('partners', id);
+  if (!row) throw new Error('없는 협력사입니다.');
+  var nm = trim_(row.name);
+
+  /*
+   * 협력사는 매입 줄에 번호가 아니라 **이름**으로 적힌다 (강사와 다르다).
+   * 교재비의 인쇄업체도 이 명부에서 고르므로 거기도 센다.
+   */
+  var used = Db.where('project_expenses', function (e) {
+    return !e.instructor_id && trim_(e.name) === nm;
+  }).length
+    + Db.where('book_costs', function (bc) { return trim_(bc.vendor) === nm; }).length;
+
+  if (used > 0) {
+    Db.update('partners', id, { is_active: 0 });
+    return { ok: true, deactivated: true, used: used };
+  }
+  Db.remove('partners', id);
+  return { ok: true, deactivated: false };
 }
 
 /* ═══════════════ 직원 · 외부영업자 ═══════════════ */
@@ -7429,6 +7496,7 @@ function route_(u, method, path, b, q) {
     if (GET && !a) return clientsList(u);
     if (POST && !a) return clientsCreate(u, b);
     if (PUT && a) return clientsUpdate(u, a, b);
+    if (DEL && a) return clientsDelete(u, a);
   }
 
   /* ───── 고객사 담당자 ───── */

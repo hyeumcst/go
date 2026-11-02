@@ -4266,7 +4266,13 @@ async function renderClients() {
                 ? '<td style="color:var(--text-secondary)">' + c.project_count + '건</td>'
                   + '<td class="amount-cell">' + formatNumber(c.total_sales) + '</td>'
                 : '')
-            + '<td><button class="btn btn-ghost btn-sm" onclick="openClientModal(' + c.id + ')">✎ 수정 · 담당자</button></td>'
+            + '<td style="white-space:nowrap">'
+              + '<button class="btn btn-ghost btn-sm" onclick="openClientModal(' + c.id + ')">✎ 수정 · 담당자</button>'
+              /* 지우는 것은 관리자 화면에서 관리자만 */
+              + (isAdminView()
+                ? ' <button class="btn btn-danger btn-sm" onclick="deleteClient(' + c.id + ')" title="명단에서 지우기">✖</button>'
+                : '')
+            + '</td>'
             + '</tr>';
         }).join('')),
       '    </tbody>',
@@ -4329,6 +4335,8 @@ async function openClientModal(id) {
       ].join('')),
     '  </div>',
     '  <div class="modal-footer">',
+    ((isNew || !isAdminView()) ? ''
+      : '<button class="btn btn-danger btn-sm" onclick="deleteClient(' + id + ')">명단에서 지우기</button>'),
     '    <button class="btn btn-ghost" onclick="this.closest(\'.modal-overlay\').remove()">닫기</button>',
     '    <button class="btn btn-primary" onclick="saveClient(' + (id || 'null') + ')">저장</button>',
     '  </div>',
@@ -4354,6 +4362,28 @@ async function saveClient(id) {
     await renderClients();
     // 새로 만들었으면 담당자를 바로 넣을 수 있게 다시 연다
     if (!id) openClientModal(newId);
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+/*
+ * 고객사를 명단에서 지운다.
+ *
+ * 과정에 한 번이라도 쓰인 고객사는 아주 지우지 않는다 — 그 과정의
+ * 고객사가 빈칸이 되기 때문이다. 그때는 「사용안함」으로만 돌리고
+ * 몇 건에 쓰이고 있는지 말씀드린다.
+ */
+async function deleteClient(id) {
+  const t = (State.clientList || []).find(function (c) { return c.id === id; });
+  const nm = t ? t.name : '이 고객사';
+  if (!confirm('「' + nm + '」 을 명단에서 지울까요?\n'
+    + '과정에 쓰인 적이 있으면 지우지 않고 「사용안함」으로만 바뀝니다.')) return;
+  try {
+    const r = await API.deleteClient(id);
+    const ov = document.querySelector('.modal-overlay'); if (ov) ov.remove();
+    showToast(r.deactivated
+      ? '과정 ' + r.used + '건에 쓰이고 있어 「사용안함」으로 바꿨습니다.'
+      : '지웠습니다.' + (r.contacts ? ' (담당자 ' + r.contacts + '명도 함께)' : ''), 'success');
+    renderClients();
   } catch (e) { showToast(e.message, 'error'); }
 }
 
@@ -4422,7 +4452,12 @@ async function renderPartners() {
             + '<td style="font-weight:600">' + esc(partnerLabel(p)) + '</td>'
             + '<td><span class="badge badge-admin">' + esc(p.default_tax_type || '-') + '</span></td>'
             + '<td style="font-size:0.85rem; color:var(--text-secondary)">' + esc(p.note || '-') + '</td>'
-            + '<td><button class="btn btn-ghost btn-sm" onclick="openPartnerModal(' + p.id + ')">✎ 수정</button></td>'
+            + '<td style="white-space:nowrap">'
+              + '<button class="btn btn-ghost btn-sm" onclick="openPartnerModal(' + p.id + ')">✎ 수정</button>'
+              + (isAdminView()
+                ? ' <button class="btn btn-danger btn-sm" onclick="removePartner(' + p.id + ')" title="명단에서 지우기">✖</button>'
+                : '')
+            + '</td>'
             + '</tr>';
         }).join('')),
       '    </tbody>',
@@ -4539,9 +4574,9 @@ function openPartnerModal(id) {
     + esc(t ? t.note : '') + '"></div>',
     '  </div>',
     '  <div class="modal-footer">',
-    /* 목록에서 빼는 것은 관리자만 — 빼면 과정등록 자동완성에서도 사라진다 */
+    /* 지우는 것은 관리자만 — 지우면 과정등록 자동완성에서도 사라진다 */
     ((isNew || !isAdminView()) ? ''
-      : '<button class="btn btn-danger btn-sm" onclick="removePartner(' + id + ')">목록에서 제외</button>'),
+      : '<button class="btn btn-danger btn-sm" onclick="removePartner(' + id + ')">명단에서 지우기</button>'),
     '    <button class="btn btn-ghost" onclick="this.closest(\'.modal-overlay\').remove()">취소</button>',
     '    <button class="btn btn-primary" onclick="savePartner(' + (id || 'null') + ')">저장</button>',
     '  </div>',
@@ -4568,12 +4603,18 @@ async function savePartner(id) {
   } catch (e) { showToast(e.message, 'error'); }
 }
 
+/* 위 deleteClient 와 같은 뜻이다 — 매입에 쓰인 적 없는 이름은 아주 지운다 */
 async function removePartner(id) {
-  if (!confirm('이 협력사를 목록에서 제외할까요?\n이미 등록된 매입 기록은 그대로 남습니다.')) return;
+  const t = (State.partners || []).find(function (p) { return p.id === id; });
+  const nm = t ? t.name : '이 협력사';
+  if (!confirm('「' + nm + '」 을 명단에서 지울까요?\n'
+    + '매입에 쓰인 적이 있으면 지우지 않고 「사용안함」으로만 바뀝니다.')) return;
   try {
-    await API.deletePartner(id);
-    showToast('목록에서 제외했습니다.', 'success');
+    const r = await API.deletePartner(id);
     const o = document.querySelector('.modal-overlay'); if (o) o.remove();
+    showToast(r.deactivated
+      ? '매입 ' + r.used + '건에 쓰이고 있어 「사용안함」으로 바꿨습니다.'
+      : '지웠습니다.', 'success');
     renderPartners();
   } catch (e) { showToast(e.message, 'error'); }
 }
@@ -5109,6 +5150,9 @@ async function renderInstructors() {
                 <td class="inst-act">
                   <button class="btn btn-outline btn-sm" onclick="copyInstRow(${i.id}, this)">📋 코드 복사</button>
                   <button class="btn btn-ghost btn-sm" onclick='openInstModal(${JSON.stringify(i).replace(/'/g, "&#39;")})'>✎ 수정</button>
+                  ${isAdminView()
+                    ? '<button class="btn btn-danger btn-sm" onclick="deleteInstructor(' + i.id + ')" title="명단에서 지우기">✖</button>'
+                    : ''}
                 </td>
               </tr>
             `).join('')}
@@ -5159,6 +5203,8 @@ function openInstModal(inst = null) {
         <div class="form-group"><label class="form-label">이메일</label><input type="email" id="i-email" class="form-input" placeholder="선택 입력" value="${inst?.email||''}"></div>
       </div>
       <div class="modal-footer">
+        ${(isNew || !isAdminView()) ? ''
+          : '<button class="btn btn-danger btn-sm" onclick="deleteInstructor(' + inst.id + ')">명단에서 지우기</button>'}
         <button class="btn btn-ghost" onclick="this.closest('.modal-overlay').remove()">취소</button>
         <button class="btn btn-primary" onclick="saveInst(${inst?.id || 'null'})">저장</button>
       </div>
@@ -5190,6 +5236,28 @@ async function saveInst(id) {
     // 신규 등록이면 "엑셀에 옮겨야 한다"는 것을 잊지 않도록 강사코드를 안내한다
     if (newId) showNewInstructorCode(newId, data.name, data.affiliation);
   } catch(e) { showToast(e.message, 'error'); }
+}
+
+/*
+ * 강사를 명단에서 지운다. (대표님 지시 2026-11-02)
+ *
+ * 매입에 한 번이라도 쓰인 강사는 아주 지우지 않는다 — 그 과정의
+ * 강사 이름이 갈 곳을 잃기 때문이다. 그때는 「사용안함」으로만 돌린다.
+ * 잘못 올라간 이름(쓰인 적 없는 이름)은 아주 지운다.
+ */
+async function deleteInstructor(id) {
+  const t = (State.instructors || []).find(function (i) { return i.id === id; });
+  const nm = t ? t.name : '이 강사';
+  if (!confirm('「' + nm + '」 (강사코드 ' + id + ') 을 명단에서 지울까요?\n'
+    + '매입에 쓰인 적이 있으면 지우지 않고 「사용안함」으로만 바뀝니다.')) return;
+  try {
+    const r = await API.deleteInstructor(id);
+    const ov = document.querySelector('.modal-overlay'); if (ov) ov.remove();
+    showToast(r.deactivated
+      ? '매입 ' + r.used + '건에 쓰이고 있어 「사용안함」으로 바꿨습니다.'
+      : '지웠습니다.', 'success');
+    renderInstructors();
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 /** 엑셀「강사정보」시트 A열에 붙여넣을 한 줄(탭 구분)을 만든다 */
