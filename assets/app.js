@@ -8579,18 +8579,16 @@ const OP = {
    *      '' 은 「전체」를 고르신 것이다. 둘을 갈라 둬야
    *      전체를 고르셨을 때 이번 달로 되돌아가지 않는다.
    */
-  month: null, q: '', open: 0, tab: 'book'
+  month: null, q: '', open: 0
 };
 
-/* 서버가 주는 탭 정의 — 항목명 보기 · 고를 수 있는 세율이 여기 들어 있다 */
-let OP_TABS_DEF = [];
-/* 펼쳐 놓은 과정의 항목들 */
+/*
+ * 고를 수 있는 세율 — 서버가 준다.
+ * 교재비 · 문구류 · 기타 탭은 없앴다 (대표님 지시 2026-11-09).
+ */
+let OP_TAXES_DEF = ['세금계산서(과세)', '세금계산서(면세)', '카드(과세)'];
+/* 펼쳐 놓은 과정의 줄들 */
 let OP_ITEMS = null;
-
-function opTabDef(key) {
-  return OP_TABS_DEF.filter(function (t) { return t.key === key; })[0]
-    || { key: key, label: '', names: [], taxes: ['세금계산서(과세)'], hint: '' };
-}
 
 function opMonthLabel(v) {
   const m = String(v || '').match(/^(\d{4})-(\d{2})$/);
@@ -8612,7 +8610,7 @@ async function renderOpCosts() {
   let d;
   try { d = await API.getOpCosts({ month: OP.month, q: OP.q }); }
   catch (e) { showToast(e.message, 'error'); return; }
-  OP_TABS_DEF = d.tabs || [];
+  if ((d.taxes || []).length) OP_TAXES_DEF = d.taxes;
 
   /* 고르신 달에 교육이 없으면 그 달도 목록에 넣어 둔다 (빈 채로 보이게) */
   const months = (d.months || []).slice();
@@ -8627,7 +8625,7 @@ async function renderOpCosts() {
   content.innerHTML = [
     '<div class="page-header">',
     '  <div><h2>운영비 관리</h2>',
-    '    <div class="subtitle">교재비 · 문구류/간식비 · 기타를 과정별로 적습니다.',
+    '    <div class="subtitle">교재비 · 문구류 · 버스비 등 운영비를 과정별로 적습니다.',
     '      여기 적은 줄은 <b>그 과정의 매입</b>에 그대로 들어갑니다 — 따로 옮기실 것이 없습니다.</div></div>',
     '</div>',
 
@@ -8662,12 +8660,11 @@ async function renderOpCosts() {
     /* 과정 목록처럼 회사를 따로 한 칸으로 (대표님 지시 2026-10-29) */
     '      <th class="th-mid">회사</th><th>과정명</th><th>고객사</th><th>교육일</th>',
     '      <th class="th-r">매출 운영비</th>',
-    '      <th class="th-r">교재비</th><th class="th-r">문구류·간식</th><th class="th-r">기타</th>',
-    '      <th class="th-r">합계</th><th></th>',
+    '      <th class="th-r">운영비</th><th></th>',
     '    </tr></thead>',
     '    <tbody>',
     ((d.rows || []).length === 0
-      ? '<tr><td colspan="10"><div class="empty-state" style="padding:2rem"><p>'
+      ? '<tr><td colspan="7"><div class="empty-state" style="padding:2rem"><p>'
         + (OP.q ? '찾는 과정이 없습니다.'
                 : (OP.month
                     ? esc(opMonthLabel(OP.month)) + '에 교육한 과정이 없습니다.'
@@ -8706,128 +8703,101 @@ function opProjectRow(r) {
     /* 차수가 여럿이면 「2026-10-05 외 2차수」 — 서버가 줄여서 준다 */
     + '<td class="op-date">' + esc(r.schedule || '-') + '</td>'
     + '<td class="td-r muted">' + num(r.sale_operation) + '</td>'
-    + '<td class="td-r">' + num(s.book) + '</td>'
-    + '<td class="td-r">' + num(s.supply) + '</td>'
-    + '<td class="td-r">' + num(s.etc) + '</td>'
     + '<td class="td-r" style="font-weight:700">' + num(s.total) + '</td>'
     + '<td class="op-caret">' + (open ? '▾' : '▸') + '</td>'
     + '</tr>';
 
   if (!open) return row;
-  return row + '<tr class="op-panel-row"><td colspan="10">' + opPanel(r) + '</td></tr>';
+  return row + '<tr class="op-panel-row"><td colspan="7">' + opPanel(r) + '</td></tr>';
 }
 
-/** 펼친 내용 — 탭 세 개와 그 탭의 항목 표 */
+/**
+ * 펼친 내용 — 운영비 줄 한 벌.
+ *
+ * 대표님 지시 (2026-11-09)
+ *   "교재비, 문구류 및 간식비, 기타 구분하지 말고 한번에 모두 나오게 해줘"
+ *   "업체명이 먼저 나오고 업체명 자동완성 하면 분류도 자동으로 나오도록"
+ *
+ * 탭 세 개를 없앴다. 어느 탭인지 가리는 일이 자꾸 틀렸고(업체명으로는
+ * 가릴 수가 없다), 가려 봐야 한 과정의 운영비를 세 번 나눠 보는 것뿐이었다.
+ */
 function opPanel(r) {
   if (!OP_ITEMS || Number(OP_ITEMS.project_id) !== Number(r.project_id)) {
     return '<div class="op-panel"><div class="op-loading">불러오는 중…</div></div>';
   }
-  const def = opTabDef(OP.tab);
-  const items = (OP_ITEMS.items || {})[OP.tab] || [];
+  const items = OP_ITEMS.items || [];
   const sub = items.reduce(function (a, x) { return a + (x.amount || 0); }, 0);
+  const saleBook = OP_ITEMS.sale_book || 0;
 
   return '<div class="op-panel">'
-    + '<div class="op-tabs">'
-    +   OP_TABS_DEF.map(function (tab) {
-          const n = ((OP_ITEMS.items || {})[tab.key] || []).length;
-          return '<button class="op-tab' + (tab.key === OP.tab ? ' on' : '') + '"'
-            + ' onclick="setOpTab(\'' + tab.key + '\')">' + esc(tab.label)
-            + (n ? ' <span class="op-cnt">' + n + '</span>' : '') + '</button>';
-        }).join('')
-    + '</div>'
-
-    + '<div class="op-hint">' + esc(def.hint || '') + '</div>'
-
-    /* 항목 보기 — 고르셔도 되고 직접 적으셔도 되게 한 칸에 담는다 */
-    + '<datalist id="op-names-' + OP.tab + '">'
-    +   (def.names || []).map(function (v) {
-          return '<option value="' + esc(v) + '"></option>';
-        }).join('')
-    + '</datalist>'
+    + '<div class="op-hint">교재비 · 문구류 · 버스비 · 현수막 등 이 과정에 쓴 운영비를 '
+    +   '한 줄씩 적으세요. 업체명을 적으시면 분류는 협력사 명단에서 따라옵니다.</div>'
 
     + '<div class="op-head">'
-    +   '<span class="c-name">항목</span><span class="c-vend">업체</span>'
+    +   '<span class="c-vend">업체</span><span class="c-cat">분류</span>'
     +   '<span class="c-amt">금액</span><span class="c-tax">세율</span>'
     +   '<span class="c-month">견적서 월</span><span class="c-del"></span>'
     + '</div>'
     + (items.length === 0
-        ? '<div class="op-empty">아직 적으신 것이 없습니다. 아래 [＋ 항목 추가]를 눌러주세요.</div>'
+        ? '<div class="op-empty">아직 적으신 것이 없습니다. 아래 [＋ 줄 추가]를 눌러주세요.</div>'
         : items.map(opItemRow).join(''))
 
     + '<div class="op-foot">'
-    +   '<button class="btn btn-outline btn-sm" onclick="addOpItem()">＋ 항목 추가</button>'
+    +   '<button class="btn btn-outline btn-sm" onclick="addOpItem()">＋ 줄 추가</button>'
     +   '<div class="op-sub">'
-    +     '<span>' + esc(def.label) + ' 소계 <b>' + formatNumber(sub) + '</b>원</span>'
-    +     (OP.tab === 'book' && OP_ITEMS.sale_book
-          ? '<span>매출의 교재 <b>' + formatNumber(OP_ITEMS.sale_book) + '</b>원'
-            + ' · 이익 <b class="' + ((OP_ITEMS.sale_book - sub) < 0 ? 'neg' : '') + '">'
-            + formatNumber(OP_ITEMS.sale_book - sub) + '</b>원</span>'
+    +     (saleBook
+          ? '<span>매출의 교재 <b>' + formatNumber(saleBook) + '</b>원</span>'
           : '')
-    +     '<span>이 과정 운영비 모두 <b>' + formatNumber((OP_ITEMS.sums || {}).total || 0) + '</b>원</span>'
+    +     '<span>이 과정 운영비 모두 <b>' + formatNumber(sub) + '</b>원</span>'
+    +     '<span>매출의 운영비 <b>' + formatNumber(OP_ITEMS.sale_operation || 0) + '</b>원'
+    +       ' · 차이 <b class="' + ((OP_ITEMS.sale_operation || 0) - sub < 0 ? 'neg' : '') + '">'
+    +       formatNumber((OP_ITEMS.sale_operation || 0) - sub) + '</b>원</span>'
     +   '</div>'
     + '</div>'
     + '</div>';
 }
 
 /**
- * 항목 한 줄.
+ * 운영비 한 줄.
+ *
+ * 업체명이 맨 앞이다 — 적으시는 차례가 그렇다. (대표님 지시 2026-11-09)
+ * 분류는 업체를 고르시면 협력사 명단에서 따라 들어온다. 고쳐 적으셔도 된다.
  *
  * 비고를 뺀 나머지를 **한 줄**에 담고, 비고만 아래에 넓게 둔다.
  * 비고 칸이 좁아 적기 어렵다고 하셨다. (대표님 지시 2026-10-28)
- *
- * 항목은 고르는 칸과 적는 칸을 따로 두지 않고 datalist 한 칸으로 합쳤다 —
- * 보기에서 고르셔도 되고 직접 적으셔도 된다. 폭도 그만큼 줄었다.
  */
 function opItemRow(it) {
   const id = it.id;
-  const def = opTabDef(OP.tab);
   const card = String(it.tax_type || '').indexOf('카드') === 0;
   const save = ' onchange="saveOpItem(' + id + ', this)"';
 
   return '<div class="op-item" data-op="' + id + '">'
     + '<div class="op-line">'
-    /* 항목 — 보기에서 고르거나 직접 적거나 */
-    /*
-     * 과정등록에서 적은 줄은 항목을 적어 두신 적이 없다 —
-     * 그 화면의 이름 칸은 업체명이기 때문이다. 비워 두고 알려 드린다.
-     * (대표님이 알려주심 2026-11-09 — 항목에 업체명이 들어가 있었다)
-     */
-    +   '<input type="text" class="form-input op-f-name c-name" list="op-names-' + OP.tab + '"'
-    +     ' value="' + esc(it.name || '') + '"'
-    +     ' placeholder="' + (it.from_form ? '항목 (과정등록)' : '항목') + '"'
-    +     (it.from_form ? ' title="과정등록에서 적으신 줄입니다. 항목을 적어 두시면 여기에 남습니다"' : '')
-    +     save + '>'
     /* 업체 — 협력사 자동완성. 없으면 그 자리에서 명부에 올린다 */
     +   '<div class="autocomplete-wrapper c-vend">'
     +     '<input type="text" class="form-input op-f-vendor"'
     +       ' value="' + esc(it.vendor || '') + '" placeholder="업체 (적으면 찾아 드립니다)"'
     +       ' oninput="opVendorSearch(this, ' + id + ')"' + save + '>'
-    /*
-     * 협력사 분류를 「(교재)」 로 붙여 보여드린다. (대표님 지시 2026-11-09)
-     *   "내가 저장한 업체명은 태진애드컴(교재)야,,
-     *    전에 협력사명 + 분류로 표시를 해달라고 했어"
-     *
-     * ★ 칸 **안**에 적지 않는다 — 적으면 그 글자가 그대로 업체명으로
-     *   저장되어 협력사가 하나 더 생긴다 (받는사람 직급과 같은 까닭이다).
-     */
-    +     (it.vendor_category
-          ? '<span class="op-cat" title="협력사 분류">(' + esc(it.vendor_category) + ')</span>'
-          : '')
     +     '<div id="auto-op-' + id + '" class="autocomplete-list"></div>'
     +   '</div>'
+    /* 분류 — 업체를 고르시면 협력사 명단에서 따라 들어온다 */
+    +   '<input type="text" class="form-input op-f-cat c-cat"'
+    +     ' value="' + esc(it.category || '') + '" placeholder="분류"'
+    +     ' title="업체를 고르시면 협력사 명단의 분류가 들어옵니다. 고쳐 적으셔도 됩니다"'
+    +     save + '>'
     +   '<input type="text" class="form-input op-f-amount c-amt"'
     +     ' value="' + (it.amount ? formatNumber(it.amount) : '') + '" placeholder="0"' + save + '>'
     +   '<select class="form-select op-f-tax c-tax"' + save + '>'
-    +     (def.taxes || []).map(function (v) {
+    +     OP_TAXES_DEF.map(function (v) {
             return '<option value="' + esc(v) + '"' + (v === it.tax_type ? ' selected' : '') + '>'
               + esc(v) + '</option>';
           }).join('')
     /*
-     * 과정등록에서 적은 줄은 여기 보기에 없는 세율일 수 있다.
-     * 그 세율을 얹어 두지 않으면 첫 보기가 골라진 것처럼 보이고,
-     * 다른 칸만 고쳐도 세율이 말없이 바뀐다. (대표님 지시 2026-11-09)
+     * 과정등록에서는 보기 밖 세율(3.3% 등)도 고를 수 있다. 그 세율을
+     * 얹어 두지 않으면 첫 보기가 골라진 것처럼 보이고, 다른 칸만 고쳐도
+     * 세율이 말없이 바뀐다. (대표님 지시 2026-11-09)
      */
-    +   (it.tax_type && (def.taxes || []).indexOf(it.tax_type) < 0
+    +   (it.tax_type && OP_TAXES_DEF.indexOf(it.tax_type) < 0
           ? '<option value="' + esc(it.tax_type) + '" selected>' + esc(it.tax_type)
             + ' (과정등록에서 고르신 세율)</option>'
           : '')
@@ -8888,6 +8858,14 @@ async function opVendorFind(inputEl, id) {
     const picked = await registerIfNew_(item, '협력사');
     if (!picked) return;
     inputEl.value = picked.name;
+    /*
+     * 분류도 함께 채운다 — 업체를 고르면 저절로 나와야 한다.
+     * (대표님 지시 2026-11-09)
+     * 적어 두신 분류는 덮지 않는다.
+     */
+    const box = inputEl.closest('.op-item[data-op]');
+    const cat = box && box.querySelector('.op-f-cat');
+    if (cat && !String(cat.value || '').trim() && item.category) cat.value = item.category;
     await saveOpItem(id, inputEl);
   });
 }
@@ -8932,11 +8910,6 @@ async function loadOpItems() {
   } catch (e) { showToast(e.message, 'error'); }
 }
 
-async function setOpTab(kind) {
-  OP.tab = kind;
-  await renderOpCosts();
-}
-
 /**
  * 항목 추가 — 빈 줄을 바로 만든다.
  *
@@ -8945,11 +8918,10 @@ async function setOpTab(kind) {
  */
 async function addOpItem() {
   if (!OP.open) return;
-  const def = opTabDef(OP.tab);
   try {
     const r = await API.saveOpItem(OP.open, {
-      kind: OP.tab, name: (def.names || [])[0] || '', vendor: '',
-      amount: 0, tax_type: (def.taxes || [])[0] || '세금계산서(과세)',
+      vendor: '', category: '',
+      amount: 0, tax_type: OP_TAXES_DEF[0] || '세금계산서(과세)',
       bill_month: '', note: ''
     });
     OP_ITEMS = r.detail;
@@ -8972,9 +8944,8 @@ async function saveOpItem(id, el) {
   try {
     const r = await API.saveOpItem(OP.open, {
       id: id,
-      kind: OP.tab,
-      name: val('op-f-name'),
       vendor: val('op-f-vendor'),
+      category: val('op-f-cat'),
       amount: parseNumber(val('op-f-amount')),
       tax_type: val('op-f-tax'),
       card_last4: val('op-f-card'),

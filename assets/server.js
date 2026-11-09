@@ -3621,16 +3621,13 @@ function merge_(a, b) {
 /**
  * 협력사 매입을 어느 이름으로 묶을까.
  *
- * 과정등록에서 적은 줄은 「강사·협력사명」 칸에 업체 이름이 들어간다.
- * 운영비 관리에서 적은 줄은 그 칸이 항목명(교재비·문구류·버스비)이고
- * 업체는 「소속」 칸에 들어간다 — 그래야 과정등록 매입을 열었을 때
- * 무엇을 산 줄인지 읽히기 때문이다.
+ * 두 창구가 칸을 똑같이 쓴다 — 이름 칸이 곧 업체명이다 (2026-11-09).
+ * 그래서 가릴 것이 없다. 소속 칸은 분류라서 묶는 데 쓰지 않는다.
  *
- * 그 줄만 소속으로 묶어, 「협력사별 매입」 에서 업체 이름으로 잡히게 한다.
- * (대표님 지시 2026-10-28)
+ * 전에는 운영비 관리만 칸을 거꾸로 써서(이름=항목 · 소속=업체) 그 줄만
+ * 소속으로 묶었다. 그 줄들은 migrateOpRows_ 가 돌려 놓았다.
  */
 function partnerKeyOf_(e) {
-  if (e.op_kind && String(e.affiliation || '').trim()) return String(e.affiliation).trim();
   return orElse_(e.name, '(미지정)');
 }
 
@@ -4964,41 +4961,14 @@ function usersUpdate(u, id, b) {
  * 관리자만 쓴다.
  */
 
-/**
- * 탭 — 이 정의 하나만 고치면 화면·서버가 함께 따라온다.
+/*
+ * 고를 수 있는 세율. (대표님 지시 2026-10-28)
  *
- *   names     항목명 칸에 미리 넣어 드리는 보기 (직접 적으셔도 된다)
- *   taxes     고를 수 있는 세율. 교재비는 카드가 없다 — 100% 세금계산서라고 하셨다
- *   word      업체 목록을 추릴 낱말 (교재비만 쓴다)
+ * 전에는 교재비 · 문구류 · 기타 세 탭으로 나누고 탭마다 보기를 뒀는데,
+ * 세 탭이 모두 같은 세율이었고 탭을 가르는 일만 어려웠다.
+ * 2026-11-09 에 탭을 없앴다 — isOpRow_ 의 설명을 보라.
  */
-/* 세율 — 세 탭 모두 같다 (대표님 지시 2026-10-28) */
 var OP_TAXES = ['세금계산서(과세)', '세금계산서(면세)', '카드(과세)'];
-
-var OP_TABS = [
-  {
-    key: 'book', label: '교재비',
-    names: ['교재비', '워크북', '부교재', '인쇄비'],
-    taxes: OP_TAXES,
-    hint: '인쇄업체 견적서가 월말에 한 장으로 오므로, 견적서 월을 적어 두면 달마다 맞춰 볼 수 있습니다.'
-  },
-  {
-    key: 'supply', label: '문구류 및 간식비',
-    names: ['문구류', '간식비', '음료', '다과'],
-    taxes: OP_TAXES,
-    hint: '세금계산서로 받으신 것과 카드로 사신 것을 한 줄씩 적으세요.'
-  },
-  {
-    key: 'etc', label: '기타',
-    names: ['버스비', '현수막', '주차비', '식대', '기타'],
-    taxes: OP_TAXES,
-    hint: '버스비·현수막 등 위 두 가지가 아닌 운영비를 적으세요. 마땅한 이름이 없으면 기타로 두시면 됩니다.'
-  }
-];
-
-function opTab_(key) {
-  for (var i = 0; i < OP_TABS.length; i++) if (OP_TABS[i].key === key) return OP_TABS[i];
-  return null;
-}
 
 /**
  * 매입 분류는 「어떻게 사셨는가」로 정해진다.
@@ -5018,64 +4988,23 @@ function opCategoryOf_(taxType) {
  */
 var OP_CATEGORIES = ['협력사(운영비)', '법인카드(교육운영)'];
 
-/* 적힌 말로 탭을 가른다. 여기 없는 말은 모두 기타다. */
-var OP_GUESS = [
-  { key: 'book',   words: ['교재', '워크북', '부교재', '인쇄', '교보재', '책자', '출판'] },
-  { key: 'supply', words: ['문구', '간식', '음료', '다과', '커피', '생수', '소모품'] }
-];
-
-/** 그 말이 어느 탭에 드는가. 모르면 빈 글자. */
-function opGuess_(text) {
-  var t = String(text || '');
-  if (!t) return '';
-  for (var i = 0; i < OP_GUESS.length; i++) {
-    for (var j = 0; j < OP_GUESS[i].words.length; j++) {
-      if (t.indexOf(OP_GUESS[i].words[j]) >= 0) return OP_GUESS[i].key;
-    }
-  }
-  return '';
-}
-
 /**
- * 이 매입 줄은 운영비의 어느 탭인가. 운영비가 아니면 빈 글자.
+ * 이 매입 줄이 운영비인가.
  * ────────────────────────────────────────────────
  *
  * 대표님 지시 (2026-11-09)
- *   "왼쪽 메뉴 운영비 관리에서 작성하면 각 고객사 과정별로도 연동되어
- *    등록이 되고 반대로 고객과 과정별로 운영비를 입력하면
- *    왼쪽 메뉴 운영비 관리에서도 나와야 하는데 안나와"
+ *   "교재비, 문구류 및 간식비, 기타 구분하지 말고 한번에 모두 나오게 해줘"
  *
- * 한쪽 길만 뚫려 있었다. 운영비 관리에서 적은 줄에는 op_kind 를 찍어
- * 두는데, 운영비 관리는 **그 찍힌 줄만** 보고 있었다. 그래서 과정등록의
- * 매입에서 교재비를 적으면 과정등록에는 있고 운영비 관리에는 없었다.
+ * 전에는 op_kind 로 탭을 가르고, 없으면 적힌 말에 든 낱말로 짐작했다.
+ * 「태진애드컴」 처럼 업체명이 적힌 줄은 짐작이 안 되어 자꾸 엉뚱한 탭에
+ * 떨어졌다. 짐작을 아예 없앤다 — 운영비냐 아니냐만 본다.
  *
- * 이제 op_kind 를 **찍혀 있으면 그대로 쓰고, 없으면 그 자리에서 가린다.**
- * 가르는 기준은 매입 분류다 — 협력사(운영비) · 법인카드(교육운영) 둘은
+ * 기준은 매입 분류다. 협력사(운영비) · 법인카드(교육운영) 둘은
  * 운영비 관리가 스스로 적을 때 쓰는 바로 그 분류다 (opCategoryOf_).
  * 강사료 · 영업수수료는 여기 안 걸리므로 섞여 들어오지 않는다.
  */
-function opKindOf_(r) {
-  if (!r) return '';
-  var k = String(r.op_kind || '').trim();
-  if (k) return opTab_(k) ? k : '';
-
-  if (OP_CATEGORIES.indexOf(String(r.category || '').trim()) < 0) return '';
-
-  /*
-   * 과정등록 줄은 이름 칸이 업체명이라, 그 말로는 탭을 못 가린다 —
-   * 「태진애드컴」 이 기타로 떨어졌다. (대표님이 알려주심 2026-11-09)
-   * 그 업체가 명부에 있으면 **협력사 분류**를 먼저 본다. 「교재」 로
-   * 적어 두셨으면 교재비 탭이다.
-   */
-  var pt = opPartnerOf_(r.name);
-  var byCat = pt ? opGuess_(pt.category) : '';
-  if (byCat) return byCat;
-
-  /*
-   * 과정등록에서 협력사를 고르시면 분류가 소속 칸에 적힌다 (2026-11-09).
-   * 명부에서 못 찾은 업체라도 그 말로 가릴 수 있다.
-   */
-  return opGuess_(r.affiliation) || opGuess_(r.name) || 'etc';
+function isOpRow_(r) {
+  return !!r && OP_CATEGORIES.indexOf(String(r.category || '').trim()) >= 0;
 }
 
 /**
@@ -5148,7 +5077,7 @@ function opScheduleText_(p) {
  */
 function opRowsOf_(projectId) {
   return Db.where('project_expenses', function (r) {
-    return Number(r.project_id) === Number(projectId) && !!opKindOf_(r);
+    return Number(r.project_id) === Number(projectId) && isOpRow_(r);
   });
 }
 
@@ -5177,28 +5106,37 @@ function opPartnerOf_(name) {
  * 업체명이므로 업체 자리에 놓는다. 항목은 적어 두신 적이 없으니 비운다 —
  * 없는 것을 지어내지 않는다.
  */
+/**
+ * 한 줄을 화면이 쓰는 모양으로.
+ * ────────────────────────────────────────────────
+ *
+ * 대표님 지시 (2026-11-09)
+ *   "운영비 관리의 항목을 분류로 변경해서 협력사명에서 분류에 해당하는
+ *    내용이 여기로 올수 있도록 해줘"
+ *   "업체명이 먼저 나오고 업체명 자동완성 하면 분류도 자동으로 나오도록"
+ *
+ * ★ 두 창구가 칸을 **똑같이** 쓴다. 이것이 핵심이다.
+ *
+ *     name        업체명   (과정등록의 「이름 / 업체명」 과 같은 칸)
+ *     affiliation 분류     (과정등록의 「소속」 과 같은 칸)
+ *
+ * 전에는 운영비 관리만 name=항목 · affiliation=업체 로 거꾸로 썼다.
+ * 그래서 과정등록 줄이 「항목: 태진애드컴 / 업체: (빈칸)」 으로 뒤집혀
+ * 나왔고, 고칠 때마다 어느 쪽이 맞는지 짐작해야 했다. 짐작을 없앴다.
+ * 옛 줄은 migrateOpRows_ 가 한 번에 돌려 놓는다.
+ */
 function opItemOf_(r) {
-  var fromForm = !r.op_kind;
-  var nm = trim_(r.name);
-  var af = trim_(r.affiliation);
-
-  /*
-   * 과정등록의 「이름 / 업체명」 칸에는 업체를 적으시기도 하고
-   * 항목을 적으시기도 한다. **명부에 있는 협력사면 업체로 본다** —
-   * 「태진애드컴」 은 업체, 「교재비」 는 항목이다.
-   */
-  var asVendor = fromForm && !!opPartnerOf_(nm);
-  var vendor = asVendor ? nm : af;
-  var pt = opPartnerOf_(vendor);
+  var vendor = trim_(r.name);
+  var cat = trim_(r.affiliation);
+  /* 분류를 안 적어 두셨으면 협력사 명부에서 가져다 보여 드린다 */
+  if (!cat) {
+    var pt = opPartnerOf_(vendor);
+    if (pt) cat = trim_(pt.category);
+  }
   return {
     id: r.id,
-    kind: opKindOf_(r),
-    /* 과정등록에서 적은 줄인지 — 화면에서 알려 드린다 (2026-11-09) */
-    from_form: fromForm,
-    name: asVendor ? '' : nm,
     vendor: vendor,
-    /* 협력사 분류 — 업체명 옆에 「(교재)」 로 붙여 보여드린다 (2026-11-09) */
-    vendor_category: pt ? trim_(pt.category) : '',
+    category: cat,
     amount: r.total_amount || 0,
     tax_type: r.tax_type || '세금계산서(과세)',
     tax_amount: r.tax_amount || 0,
@@ -5211,14 +5149,9 @@ function opItemOf_(r) {
 
 /** 탭별 합계 */
 function opSumsOf_(rows) {
-  var out = { book: 0, supply: 0, etc: 0, total: 0 };
-  rows.forEach(function (r) {
-    var amt = r.total_amount || 0;
-    var k = opKindOf_(r);
-    if (out[k] === undefined) return;
-    out[k] += amt;
-    out.total += amt;
-  });
+  /* 탭을 없앴으므로 합계 하나뿐이다 (대표님 지시 2026-11-09) */
+  var out = { total: 0 };
+  rows.forEach(function (r) { out.total += (r.total_amount || 0); });
   return out;
 }
 
@@ -5264,6 +5197,7 @@ function opCostsList(u, q) {
   requireAdmin(u);
   q = q || {};
   migrateBookCosts_();
+  migrateOpRows_();        // 옛 칸 쓰임을 한 번에 돌려 놓는다 (2026-11-09)
 
   var month = String(q.month || '').trim();
   if (month && !/^\d{4}-\d{2}$/.test(month)) throw new Error('달은 2026-10 처럼 적어주세요.');
@@ -5274,7 +5208,7 @@ function opCostsList(u, q) {
 
   /* 운영비 줄을 과정별로 모아 둔다 — 과정마다 표를 훑지 않기 위해서다 */
   var byProject = {};
-  Db.where('project_expenses', function (r) { return !!opKindOf_(r); })
+  Db.where('project_expenses', function (r) { return isOpRow_(r); })
     .forEach(function (r) { (byProject[Number(r.project_id)] = byProject[Number(r.project_id)] || []).push(r); });
 
   var rows = Db.all('projects').filter(function (p) {
@@ -5305,33 +5239,31 @@ function opCostsList(u, q) {
     return b.project_id - a.project_id;
   });
 
+  /* 탭을 없앴으므로 합계 하나뿐이다 (대표님 지시 2026-11-09) */
   var totals = rows.reduce(function (acc, r) {
-    acc.book += r.sums.book; acc.supply += r.sums.supply; acc.etc += r.sums.etc;
-    acc.total += r.sums.total; acc.sale_operation += r.sale_operation;
+    acc.total += r.sums.total;
+    acc.sale_operation += r.sale_operation;
+    acc.sale_book += r.sale_book;
     if (r.count) acc.filled++;
     return acc;
-  }, { book: 0, supply: 0, etc: 0, total: 0, sale_operation: 0, filled: 0 });
+  }, { total: 0, sale_operation: 0, sale_book: 0, filled: 0 });
   totals.count = rows.length;
   totals.margin = totals.sale_operation - totals.total;
 
-  return { rows: rows, totals: totals, months: opMonths_(), tabs: OP_TABS, month: month };
+  return { rows: rows, totals: totals, months: opMonths_(), taxes: OP_TAXES, month: month };
 }
 
 /** 과정 하나의 운영비 줄들 — 과정을 누르면 펼쳐지는 내용 */
 function opCostsItems(u, projectId) {
   requireAdmin(u);
+  migrateBookCosts_();     // 옛 교재비 표에 남은 것
+  migrateOpRows_();        // 옛 칸 쓰임 — 이미 돌았으면 바로 지나간다
   var p = Db.get('projects', Number(projectId));
   if (!p) throw new Error('없는 과정입니다.');
 
-  var items = { book: [], supply: [], etc: [] };
-  opRowsOf_(p.id).forEach(function (r) {
-    var k = opKindOf_(r);
-    if (items[k]) items[k].push(opItemOf_(r));
-  });
-  /* 적은 차례대로 — 번호가 작은 것이 먼저 적은 것이다 */
-  Object.keys(items).forEach(function (k) {
-    items[k].sort(function (a, b) { return a.id - b.id; });
-  });
+  /* 탭을 없앴으므로 한 벌이다. 적은 차례대로 (번호가 작은 것이 먼저) */
+  var items = opRowsOf_(p.id).map(opItemOf_)
+    .sort(function (a, b) { return a.id - b.id; });
 
   var sales = opSalesOf_(p.id);
   return {
@@ -5346,10 +5278,7 @@ function opCostsItems(u, projectId) {
 
 /** 적어 넣은 한 줄을 다듬는다 */
 function opClean_(item, had) {
-  var tab = opTab_(String((item && item.kind) || ''));
-  if (!tab) throw new Error('없는 탭입니다.');
-
-  var tax = String((item && item.tax_type) || '').trim() || tab.taxes[0];
+  var tax = String((item && item.tax_type) || '').trim() || OP_TAXES[0];
   /*
    * 과정등록에서 적은 줄은 운영비 관리의 보기 밖 세율일 수 있다
    * (과정등록에서는 3.3% 같은 것도 고를 수 있다). 그대로 두시는 한
@@ -5357,8 +5286,8 @@ function opClean_(item, had) {
    * (2026-11-09)
    */
   var kept = had && String(had.tax_type || '').trim() === tax;
-  if (tab.taxes.indexOf(tax) < 0 && !kept) {
-    throw new Error(tab.label + ' 에서는 ' + tab.taxes.join(' · ') + ' 중에서 고르셔야 합니다.');
+  if (OP_TAXES.indexOf(tax) < 0 && !kept) {
+    throw new Error('세율은 ' + OP_TAXES.join(' · ') + ' 중에서 고르셔야 합니다.');
   }
 
   var month = String((item && item.bill_month) || '').trim();
@@ -5374,11 +5303,24 @@ function opClean_(item, had) {
   /* 카드가 아니면 카드번호를 들고 있을 까닭이 없다 */
   if (tax.indexOf('카드') !== 0) last4 = '';
 
+  /*
+   * 업체명을 적으시면 분류는 협력사 명부에서 가져온다 —
+   * 두 번 적으실 까닭이 없다. (대표님 지시 2026-11-09)
+   */
+  var vendor = trim_(item && item.vendor);
+  var cat = trim_(item && item.category);
+  if (!cat) {
+    var pt = opPartnerOf_(vendor);
+    if (pt) cat = trim_(pt.category);
+  }
+
   return {
-    op_kind: tab.key,
+    /* 옛 탭 표시는 더 쓰지 않는다. 옮긴 줄이라는 표시로만 남긴다 */
+    op_kind: 'v2',
     category: opCategoryOf_(tax),
-    name: trim_(item && item.name) || tab.names[0],
-    affiliation: trim_(item && item.vendor),
+    /* ★ 과정등록과 같은 칸 쓰임 — name = 업체명 · affiliation = 분류 */
+    name: vendor,
+    affiliation: cat,
     total_amount: amount,
     tax_type: tax,
     tax_amount: t.tax,
@@ -5416,7 +5358,7 @@ function opCostsSave(u, projectId, item) {
      * 한 번 고치면 op_kind 가 찍히므로, 그 뒤로는 항목명을 바꿔도
      * 탭이 따라 움직이지 않는다 (opClean_ 이 찍어 준다).
      */
-    if (!opKindOf_(had)) throw new Error('운영비가 아닌 매입 줄은 여기서 고칠 수 없습니다.');
+    if (!isOpRow_(had)) throw new Error('운영비가 아닌 매입 줄은 여기서 고칠 수 없습니다.');
     Db.update('project_expenses', id, d);
   } else {
     d.project_id = pid;
@@ -5434,12 +5376,60 @@ function opCostsDelete(u, expenseId) {
   var row = Db.get('project_expenses', id);
   if (!row) throw new Error('없는 줄입니다.');
   /* 과정등록에서 적은 운영비 줄도 지울 수 있다 (2026-11-09) */
-  if (!opKindOf_(row)) throw new Error('운영비가 아닌 매입 줄은 여기서 지울 수 없습니다.');
+  if (!isOpRow_(row)) throw new Error('운영비가 아닌 매입 줄은 여기서 지울 수 없습니다.');
 
   var pid = Number(row.project_id);
   Db.remove('project_expenses', id);
   opRetotal_(pid);
   return { message: '지웠습니다.', detail: opCostsItems(u, pid) };
+}
+
+/* ───────── 옛 줄을 새 칸 쓰임으로 ───────── */
+
+/**
+ * 운영비 관리에서 적어 두셨던 옛 줄을 돌려 놓는다. (2026-11-09)
+ *
+ * 2026-11-09 전까지 운영비 관리는 칸을 거꾸로 썼다.
+ *
+ *   옛   name = 항목(교재비 · 워크북 …) · affiliation = 업체
+ *   지금 name = 업체명                  · affiliation = 분류
+ *
+ * 과정등록은 처음부터 「지금」 쪽이었다. 두 창구가 같은 줄을 보는데
+ * 칸 쓰임이 달라서, 과정등록 줄이 「항목: 태진애드컴 / 업체: (빈칸)」 으로
+ * 뒤집혀 나왔다. 짐작으로 가리려다 두 번이나 틀렸으므로, 옛 줄을 아주
+ * 돌려 놓고 짐작을 없앤다.
+ *
+ * ★ 적어 두신 항목명은 버리지 않는다. 비고 앞에 붙여 남긴다 —
+ *   「워크북」 이라고 적어 두신 것이 조용히 사라지면 안 된다.
+ *
+ * 한 번만 돈다. 돌고 나면 op_kind 가 'v2' 가 되어 다시 안 걸린다.
+ */
+function migrateOpRows_() {
+  var old = Db.where('project_expenses', function (r) {
+    var k = String(r.op_kind || '').trim();
+    return k && k !== 'v2';
+  });
+  if (!old.length) return 0;
+
+  old.forEach(function (r) {
+    var item = trim_(r.name);          // 옛 항목명
+    var vendor = trim_(r.affiliation); // 옛 업체명
+
+    /* 업체를 안 적어 두셨으면 항목명이 업체 자리로 올라간다 */
+    if (!vendor) { vendor = item; item = ''; }
+
+    var cat = '';
+    var pt = opPartnerOf_(vendor);
+    if (pt) cat = trim_(pt.category);
+
+    var note = trim_(r.note);
+    if (item && note.indexOf(item) < 0) note = note ? (item + ' · ' + note) : item;
+
+    Db.update('project_expenses', r.id, {
+      name: vendor, affiliation: cat, note: note, op_kind: 'v2'
+    });
+  });
+  return old.length;
 }
 
 /* ───────── 옛 교재비 자료 옮기기 ───────── */
@@ -5461,10 +5451,12 @@ function migrateBookCosts_() {
     var pid = Number(r.project_id);
     var amount = parseInt(r.amount, 10) || 0;
     if (Db.get('projects', pid) && amount > 0) {
+      /* 업체가 곧 이름이다 — 항목명은 비고에 남긴다 (2026-11-09) */
       var d = opClean_({
-        kind: 'book', name: '교재비', vendor: r.vendor,
+        vendor: r.vendor, category: '',
         amount: amount, tax_type: '세금계산서(과세)',
-        bill_month: r.bill_month, note: r.note
+        bill_month: r.bill_month,
+        note: trim_(r.note) ? ('교재비 · ' + trim_(r.note)) : '교재비'
       });
       d.project_id = pid;
       Db.insert('project_expenses', d);

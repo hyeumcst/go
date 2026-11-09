@@ -3063,7 +3063,8 @@ tr.v-done td { background: var(--success-bg); }
 }
 .op-item .form-input, .op-item .form-select { padding: 0.35rem 0.5rem; font-size: 0.8rem; min-width: 0; }
 
-.op-head .c-name,  .op-line .c-name  { width: 8rem; flex: none; }
+/* 분류 칸 — 업체 다음에 온다 (대표님 지시 2026-11-09) */
+.op-head .c-cat,   .op-line .c-cat   { width: 7rem; flex: none; }
 .op-head .c-vend,  .op-line .c-vend  { flex: 1 1 10rem; min-width: 8rem; max-width: 20rem; }
 .op-head .c-amt,   .op-line .c-amt   { width: 7rem; flex: none; text-align: right; font-weight: 700; }
 .op-head .c-tax,   .op-line .c-tax   { width: 9.5rem; flex: none; }
@@ -3071,14 +3072,6 @@ tr.v-done td { background: var(--success-bg); }
 .op-head .c-month, .op-line .c-month { width: 8.5rem; flex: none; }
 .op-head .c-del,   .op-line .c-del   { width: 2.2rem; flex: none; text-align: center; }
 .op-head .c-amt { padding-right: 0.5rem; }
-
-/* 업체명 옆의 협력사 분류 — 읽기만 하는 꼬리표 (대표님 지시 2026-11-09) */
-.op-line .c-vend { position: relative; display: flex; flex-wrap: nowrap; align-items: center; gap: 0.3rem; }
-/* 칸이 줄어들 수 있어야 꼬리표가 같은 줄에 선다 (flex: 1 1 0) */
-.op-line .c-vend .form-input { flex: 1 1 0; width: 0; min-width: 4rem; }
-.op-line .op-cat {
-  flex: 0 0 auto; color: var(--text-muted); font-size: 0.75rem; white-space: nowrap;
-}
 
 .op-line2 { margin-top: 0.35rem; }
 .op-line2 .op-f-note { width: 100%; }
