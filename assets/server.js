@@ -430,7 +430,9 @@ const ContentService = __notHere('ContentService');
  */
 let __MAILS = [];
 const MailApp = {
-  sendEmail: function (m) { __MAILS.push(m); }
+  sendEmail: function (m) { __MAILS.push(m); },
+  /* 보내는 일은 앱스스크립트가 하므로 여기서는 셀 것이 없다 (모양만 맞춰 둔다) */
+  getRemainingDailyQuota: function () { return null; }
 };
 /** 적어 둔 메일을 가져간다 (가져가면 비운다) */
 function fbTakeMails() { const out = __MAILS; __MAILS = []; return out; }
@@ -1553,7 +1555,19 @@ function mailSend(u, b) {
     htmlBody: String(b.htmlBody || '').slice(0, 60000),
     name: '혜움컨설팅 매출/매입 관리'
   });
-  return { message: '메일을 보냈습니다.', to: to };
+
+  /*
+   * 오늘 더 보낼 수 있는 통수. (대표님 지시 2026-11-09)
+   *
+   * 「보냈습니다」 라고 떴는데 메일이 안 오는 일이 있었다. 한도를 다 쓰면
+   * 보내는 자리에서 탈이 나므로 그건 아닌데, 남은 통수가 0 에 가까우면
+   * 바로 그 까닭일 수 있다. 눈에 보이면 한 번에 가려진다.
+   *
+   * 읽는 것뿐이라 메일이 더 나가지 않는다. 혹시 못 읽어도 그냥 넘어간다.
+   */
+  var left = null;
+  try { left = MailApp.getRemainingDailyQuota(); } catch (e) { left = null; }
+  return { message: '메일을 보냈습니다.', to: to, quota: left };
 }
 
 /** 돈을 보기 좋게 */

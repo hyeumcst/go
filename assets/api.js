@@ -93,7 +93,15 @@ const API = {
         const mails = fbTakeMails();
         for (let i = 0; i < mails.length; i++) {
           try {
-            await this.sendMail(mails[i]);
+            const done = await this.sendMail(mails[i]);
+            /*
+             * 「보냈습니다」 옆에 오늘 남은 통수를 적어 드린다.
+             * 메일이 안 온다고 하실 때 가장 먼저 봐야 하는 숫자다.
+             * (대표님 지시 2026-11-09)
+             */
+            if (done && typeof done.quota === 'number' && v && v.message) {
+              v.message += ' · 오늘 남은 메일 ' + done.quota + '통';
+            }
           } catch (err) {
             /*
              * 메일이 끝내 안 나갔으면 적어 둔 「요청함」을 도로 지운다.
@@ -167,7 +175,7 @@ const API = {
    */
   async sendMail(mail) {
     try {
-      await this.request('POST', '/mail/send', {
+      return await this.request('POST', '/mail/send', {
         to: (mail && mail.to) || '',
         subject: (mail && mail.subject) || '',
         body: (mail && mail.body) || '',
