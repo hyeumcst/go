@@ -8770,13 +8770,32 @@ function opItemRow(it) {
   return '<div class="op-item" data-op="' + id + '">'
     + '<div class="op-line">'
     /* 항목 — 보기에서 고르거나 직접 적거나 */
+    /*
+     * 과정등록에서 적은 줄은 항목을 적어 두신 적이 없다 —
+     * 그 화면의 이름 칸은 업체명이기 때문이다. 비워 두고 알려 드린다.
+     * (대표님이 알려주심 2026-11-09 — 항목에 업체명이 들어가 있었다)
+     */
     +   '<input type="text" class="form-input op-f-name c-name" list="op-names-' + OP.tab + '"'
-    +     ' value="' + esc(it.name || '') + '" placeholder="항목"' + save + '>'
+    +     ' value="' + esc(it.name || '') + '"'
+    +     ' placeholder="' + (it.from_form ? '항목 (과정등록)' : '항목') + '"'
+    +     (it.from_form ? ' title="과정등록에서 적으신 줄입니다. 항목을 적어 두시면 여기에 남습니다"' : '')
+    +     save + '>'
     /* 업체 — 협력사 자동완성. 없으면 그 자리에서 명부에 올린다 */
     +   '<div class="autocomplete-wrapper c-vend">'
     +     '<input type="text" class="form-input op-f-vendor"'
     +       ' value="' + esc(it.vendor || '') + '" placeholder="업체 (적으면 찾아 드립니다)"'
     +       ' oninput="opVendorSearch(this, ' + id + ')"' + save + '>'
+    /*
+     * 협력사 분류를 「(교재)」 로 붙여 보여드린다. (대표님 지시 2026-11-09)
+     *   "내가 저장한 업체명은 태진애드컴(교재)야,,
+     *    전에 협력사명 + 분류로 표시를 해달라고 했어"
+     *
+     * ★ 칸 **안**에 적지 않는다 — 적으면 그 글자가 그대로 업체명으로
+     *   저장되어 협력사가 하나 더 생긴다 (받는사람 직급과 같은 까닭이다).
+     */
+    +     (it.vendor_category
+          ? '<span class="op-cat" title="협력사 분류">(' + esc(it.vendor_category) + ')</span>'
+          : '')
     +     '<div id="auto-op-' + id + '" class="autocomplete-list"></div>'
     +   '</div>'
     +   '<input type="text" class="form-input op-f-amount c-amt"'
@@ -8842,6 +8861,10 @@ async function opVendorFind(inputEl, id) {
 
   let partners = [];
   try { partners = (await API.searchPartners(q)).partners || []; } catch (e) { partners = []; }
+  /* 「태진애드컴 (교재)」 — 고를 때 칸에 들어가는 것은 이름뿐이다 (2026-11-09) */
+  partners = partners.map(function (p) {
+    return Object.assign({}, p, { label: partnerLabel(p) });
+  });
 
   renderAutoList(listEl, partners.slice(0, 12), q, async function (item) {
     listEl.classList.remove('show');

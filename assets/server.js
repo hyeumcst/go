@@ -5018,11 +5018,23 @@ function opCategoryOf_(taxType) {
  */
 var OP_CATEGORIES = ['협력사(운영비)', '법인카드(교육운영)'];
 
-/* 항목명으로 탭을 가른다. 여기 없는 말은 모두 기타다. */
+/* 적힌 말로 탭을 가른다. 여기 없는 말은 모두 기타다. */
 var OP_GUESS = [
-  { key: 'book',   words: ['교재', '워크북', '부교재', '인쇄', '교보재', '책자'] },
+  { key: 'book',   words: ['교재', '워크북', '부교재', '인쇄', '교보재', '책자', '출판'] },
   { key: 'supply', words: ['문구', '간식', '음료', '다과', '커피', '생수', '소모품'] }
 ];
+
+/** 그 말이 어느 탭에 드는가. 모르면 빈 글자. */
+function opGuess_(text) {
+  var t = String(text || '');
+  if (!t) return '';
+  for (var i = 0; i < OP_GUESS.length; i++) {
+    for (var j = 0; j < OP_GUESS[i].words.length; j++) {
+      if (t.indexOf(OP_GUESS[i].words[j]) >= 0) return OP_GUESS[i].key;
+    }
+  }
+  return '';
+}
 
 /**
  * 이 매입 줄은 운영비의 어느 탭인가. 운영비가 아니면 빈 글자.
@@ -5049,13 +5061,17 @@ function opKindOf_(r) {
 
   if (OP_CATEGORIES.indexOf(String(r.category || '').trim()) < 0) return '';
 
-  var nm = String(r.name || '');
-  for (var i = 0; i < OP_GUESS.length; i++) {
-    for (var j = 0; j < OP_GUESS[i].words.length; j++) {
-      if (nm.indexOf(OP_GUESS[i].words[j]) >= 0) return OP_GUESS[i].key;
-    }
-  }
-  return 'etc';
+  /*
+   * 과정등록 줄은 이름 칸이 업체명이라, 그 말로는 탭을 못 가린다 —
+   * 「태진애드컴」 이 기타로 떨어졌다. (대표님이 알려주심 2026-11-09)
+   * 그 업체가 명부에 있으면 **협력사 분류**를 먼저 본다. 「교재」 로
+   * 적어 두셨으면 교재비 탭이다.
+   */
+  var pt = opPartnerOf_(r.name);
+  var byCat = pt ? opGuess_(pt.category) : '';
+  if (byCat) return byCat;
+
+  return opGuess_(r.name) || 'etc';
 }
 
 /**
@@ -5132,15 +5148,53 @@ function opRowsOf_(projectId) {
   });
 }
 
-/** 한 줄을 화면이 쓰는 모양으로 */
+/**
+ * 그 이름으로 명부에 올라 있는 협력사. 없으면 null.
+ * 이름이 같은 분이 둘이면 쓰고 있는 쪽(is_active)을 먼저 본다.
+ */
+function opPartnerOf_(name) {
+  var nm = trim_(name);
+  if (!nm) return null;
+  return Db.first('partners', function (p) { return p.is_active && trim_(p.name) === nm; })
+    || Db.first('partners', function (p) { return trim_(p.name) === nm; })
+    || null;
+}
+
+/**
+ * 한 줄을 화면이 쓰는 모양으로.
+ *
+ * ★ 두 창구가 칸을 다르게 쓴다. (대표님이 알려주심 2026-11-09)
+ *
+ *   운영비 관리  name = 항목(교재비…) · affiliation = 업체(협력사)
+ *   과정등록     name = 「이름 / 업체명」 그 자체 · affiliation = 소속
+ *
+ * 그대로 옮겨 적었더니 과정등록에서 적은 줄이 「항목: 태진애드컴 /
+ * 업체: (빈칸)」 으로 뒤집혀 나왔다. 과정등록 줄은 이름 칸이 곧
+ * 업체명이므로 업체 자리에 놓는다. 항목은 적어 두신 적이 없으니 비운다 —
+ * 없는 것을 지어내지 않는다.
+ */
 function opItemOf_(r) {
+  var fromForm = !r.op_kind;
+  var nm = trim_(r.name);
+  var af = trim_(r.affiliation);
+
+  /*
+   * 과정등록의 「이름 / 업체명」 칸에는 업체를 적으시기도 하고
+   * 항목을 적으시기도 한다. **명부에 있는 협력사면 업체로 본다** —
+   * 「태진애드컴」 은 업체, 「교재비」 는 항목이다.
+   */
+  var asVendor = fromForm && !!opPartnerOf_(nm);
+  var vendor = asVendor ? nm : af;
+  var pt = opPartnerOf_(vendor);
   return {
     id: r.id,
     kind: opKindOf_(r),
     /* 과정등록에서 적은 줄인지 — 화면에서 알려 드린다 (2026-11-09) */
-    from_form: !r.op_kind,
-    name: r.name || '',
-    vendor: r.affiliation || '',
+    from_form: fromForm,
+    name: asVendor ? '' : nm,
+    vendor: vendor,
+    /* 협력사 분류 — 업체명 옆에 「(교재)」 로 붙여 보여드린다 (2026-11-09) */
+    vendor_category: pt ? trim_(pt.category) : '',
     amount: r.total_amount || 0,
     tax_type: r.tax_type || '세금계산서(과세)',
     tax_amount: r.tax_amount || 0,
