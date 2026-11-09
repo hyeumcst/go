@@ -4121,16 +4121,41 @@ function setupAmountInputs() {
  * @param {function|null} after    저장 후 실행 (없으면 고객사 관리 화면을 다시 연다)
  */
 /**
- * 화면에 보여줄 담당자 이름 — 「김민수 과장」. (대표님 지시 2026-11-02)
+ * 사람 · 업체를 한 줄로 — 「이상하 과장 (총무팀)」. (대표님 지시 2026-11-02)
+ *   "담당자 / 강사 / 협력사 모두 이름+직급(소속) 이렇게 나오도록 해줘"
  *
- * ★ 저장할 때는 이 이름을 쓰지 않는다. 이름만으로 담당자를 찾아내는
- *   자리가 있어서, 직급이 붙은 이름이 넘어가면 담당자가 하나 더 생긴다.
+ * 셋을 같은 모양으로 적는다. 이름만 보이면 같은 이름이 여럿일 때
+ * 누구인지 가릴 수 없고, 직급과 소속은 다른 칸에 흩어져 있었다.
+ *
+ *   담당자 — 이름 + 직급 (부서)
+ *   강사   — 이름 + 직함 (회사명)
+ *   협력사 — 이름 (분류)        · 협력사에는 직급이 없다
+ *
+ * ★ 저장할 때는 이 이름을 쓰지 않는다. 이름만으로 사람을 찾아내는
+ *   자리가 있어서, 직급이나 괄호가 붙은 이름이 넘어가면 같은 분이
+ *   둘로 갈라진다. 보여줄 때만 쓴다.
+ */
+function whoLabel(name, rank, where) {
+  const nm = String(name || '').trim();
+  const rk = String(rank || '').trim();
+  const wh = String(where || '').trim();
+  return (rk ? nm + ' ' + rk : nm) + (wh ? ' (' + wh + ')' : '');
+}
+
+/**
+ * 담당자 — 「이상하 과장 (총무팀)」.
+ * 부서는 어디서 왔느냐에 따라 department 로도 affiliation 으로도 온다
+ * (계산서 받는사람은 affiliation 에 담아 보낸다).
  */
 function contactLabel(c) {
   if (!c) return '';
-  const nm = String(c.name || '').trim();
-  const ps = String(c.position || '').trim();
-  return ps ? nm + ' ' + ps : nm;
+  return whoLabel(c.name, c.position, c.department || c.affiliation);
+}
+
+/** 강사 — 「김영정 강사 (늘품에듀)」 */
+function instructorLabel(i) {
+  if (!i) return '';
+  return whoLabel(i.name, i.title, i.affiliation);
 }
 
 async function openContactEditor(clientId, contactId, known, after) {
@@ -4319,13 +4344,13 @@ async function openClientModal(id) {
           ? '<div class="empty-state" style="padding:1.2rem"><p>등록된 담당자가 없습니다.</p></div>'
           : contacts.map(function (ct) {
             /*
-             * 이름과 직급을 붙여 보여준다 — 「김민수 과장」.
-             * 따로 떨어져 있어 한눈에 읽히지 않았다. (대표님 지시 2026-11-02)
-             * 빈 자리에는 이메일을 둔다 (없으면 알려 드린다).
+             * 이름 · 직급 · 부서를 한 덩어리로 붙여 적는다 —
+             * 「이상하 과장 (총무팀)」. (대표님 지시 2026-11-02)
+             * 셋이 칸마다 흩어져 있어 한눈에 읽히지 않았다.
+             * 남는 자리는 이메일에 준다 (없으면 알려 드린다).
              */
             return '<div class="ct-row">'
               + '<span class="nm">' + esc(contactLabel(ct)) + '</span>'
-              + '<span class="ps">' + esc(ct.department || '-') + '</span>'
               + '<span class="em" title="' + esc(ct.email || '') + '">'
               + esc(ct.email || '이메일 없음') + '</span>'
               + '<button type="button" class="btn btn-ghost btn-sm" onclick="editClientContact(' + id + ',' + ct.id + ')">✎</button>'
@@ -4415,9 +4440,7 @@ async function dropClientContact(clientId, contactId) {
  */
 function partnerLabel(p) {
   if (!p) return '';
-  const nm = String(p.name || '').trim();
-  const ct = String(p.category || '').trim();
-  return ct ? nm + ' (' + ct + ')' : nm;
+  return whoLabel(p.name, '', p.category);
 }
 
 async function renderPartners() {
@@ -4646,9 +4669,8 @@ function setContactOptions(list, selectedId) {
 
   const opts = ['<option value="">(담당자 없음)</option>'];
   State.contacts.forEach(function (c) {
-    let label = c.name;
-    if (c.position) label += ' ' + c.position;
-    if (c.department) label += ' (' + c.department + ')';
+    /* 「이상하 과장 (총무팀)」 — 셋이 같은 모양이다 (whoLabel) */
+    const label = contactLabel(c);
     opts.push('<option value="' + c.id + '"'
       + (String(c.id) === String(selectedId) ? ' selected' : '') + '>' + label + '</option>');
   });
@@ -4862,10 +4884,16 @@ function renderAutoList(container, items, query, onClick, showSub = false) {
        * (대표님 지시 2026-10-28)
        */
       const tag = item._from ? `<span class="ac-tag">${esc(item._from)}</span>` : '';
-      div.innerHTML = `<div class="main-text">${esc(item.name)}${tag}</div>`
+      /*
+       * label 이 있으면 그것으로 보여준다 — 「김영정 강사 (늘품에듀)」.
+       * 소속이 이름 줄에 들어가므로 아래에 또 적지 않는다. (2026-11-02)
+       */
+      const shown = item.label || item.name;
+      div.innerHTML = `<div class="main-text">${esc(shown)}${tag}</div>`
         + (showSub && item.email
             ? `<div class="sub-text">${esc(item.email)}</div>` : '')
-        + (item.affiliation ? `<div class="sub-text">${esc(item.affiliation)}</div>` : '');
+        + (!item.label && item.affiliation
+            ? `<div class="sub-text">${esc(item.affiliation)}</div>` : '');
       div.onclick = () => { onClick(item); };
       container.appendChild(div);
     });
@@ -4979,13 +5007,17 @@ async function nameSearch_(inputEl, itemId, category) {
         API.searchPartners(q).catch(function () { return { partners: [] }; })
       ]);
 
-      /* 어느 명부에서 왔는지 들고 다닌다 — 고를 때 할 일이 다르다 */
+      /*
+       * 어느 명부에서 왔는지 들고 다닌다 — 고를 때 할 일이 다르다.
+       * label 은 보여줄 때만 쓰는 이름이다 — 「김영정 강사 (늘품에듀)」.
+       * 고를 때 들어가는 것은 label 이 아니라 name 이다. (2026-11-02)
+       */
       const merged = []
         .concat((ins.instructors || []).map(function (x) {
-          return Object.assign({}, x, { _from: '강사' });
+          return Object.assign({}, x, { _from: '강사', label: instructorLabel(x) });
         }))
         .concat((par.partners || []).map(function (x) {
-          return Object.assign({}, x, { _from: '협력사' });
+          return Object.assign({}, x, { _from: '협력사', label: partnerLabel(x) });
         }));
 
       /* 같은 이름이 양쪽에 있으면 지금 분류 쪽을 먼저 보여준다 */
@@ -7862,9 +7894,8 @@ function searchRecipient(el, id, i) {
       /* 담당자인지 지난 계산서에서 온 것인지 — 같은 이름이 둘 다 있을 수 있다 */
       const tag = p._from ? '<span class="ac-tag">' + esc(p._from) + '</span>' : '';
       return '<div class="autocomplete-item" onclick="pickRecipient(\'' + id + '\',' + i + ',' + k + ')">'
-        /* 이름 옆에 직급을 붙여 보여준다 — 고르면 이름만 들어간다 */
+        /* 「이상하 과장 (총무팀)」 — 고르면 이름만 칸에 들어간다 */
         + '<div class="main-text">' + esc(contactLabel(p)) + tag + '</div>'
-        + (p.affiliation ? '<div class="sub-text">' + esc(p.affiliation) + '</div>' : '')
         + (sub ? '<div class="sub-text">' + esc(sub) + '</div>'
                : '<div class="sub-text muted">이메일·연락처 없음 — 적어주세요</div>')
         + '</div>';
@@ -7882,7 +7913,15 @@ function pickRecipient(id, i, k) {
   if (!p) return;
   const it = State.invoices.find(function (x) { return x._id === id; });
   if (!it) return;
-  invRecipients(it)[i] = { name: p.name, email: p.email || '' };
+  /*
+   * 직급 · 부서도 함께 들고 있는다 — 고른 뒤 칸에 보여드려야 하기
+   * 때문이다. 이름 칸에는 이름만 넣는다 (괄호까지 넣으면 지난 계산서에
+   * 「김재용차장」 처럼 붙은 이름이 또 생긴다). (대표님 지시 2026-11-02)
+   */
+  invRecipients(it)[i] = {
+    name: p.name, email: p.email || '',
+    position: p.position || '', affiliation: p.affiliation || ''
+  };
   const box = document.getElementById('auto-recv-' + id + '-' + i);
   if (box) { box.classList.remove('show'); box.innerHTML = ''; }
   renderInvoices();
@@ -8048,6 +8087,17 @@ function renderInvoices() {
         +     ' onfocus="searchRecipient(this, \'' + id + '\',' + ri + ')"'
         +     ' onclick="searchRecipient(this, \'' + id + '\',' + ri + ')">'
         +   '<div id="auto-recv-' + id + '-' + ri + '" class="autocomplete-list"></div></div>'
+        /*
+         * 직급 (부서) 는 읽기만 하는 꼬리표로 붙인다. (대표님 지시 2026-11-02)
+         * 이름 칸에 같이 적으면 그대로 저장되어, 메일과 지난 계산서에
+         * 「이상하 과장 (총무팀)」 이 사람 이름으로 남는다.
+         */
+        + (function () {
+          const tail = whoLabel('', r.position, r.affiliation).trim();
+          return tail
+            ? '<span class="recv-who" title="' + esc(tail) + '">' + esc(tail) + '</span>'
+            : '';
+        })()
         + '<div class="rf rf-remail"><span class="cap">이메일</span>'
         +   '<input type="text" class="form-input' + (known || !r.name ? '' : ' need') + '"'
         +     ' placeholder="' + (r.name && !known ? '확인해주세요' : '') + '"'
@@ -8736,6 +8786,15 @@ function opItemRow(it) {
             return '<option value="' + esc(v) + '"' + (v === it.tax_type ? ' selected' : '') + '>'
               + esc(v) + '</option>';
           }).join('')
+    /*
+     * 과정등록에서 적은 줄은 여기 보기에 없는 세율일 수 있다.
+     * 그 세율을 얹어 두지 않으면 첫 보기가 골라진 것처럼 보이고,
+     * 다른 칸만 고쳐도 세율이 말없이 바뀐다. (대표님 지시 2026-11-09)
+     */
+    +   (it.tax_type && (def.taxes || []).indexOf(it.tax_type) < 0
+          ? '<option value="' + esc(it.tax_type) + '" selected>' + esc(it.tax_type)
+            + ' (과정등록에서 고르신 세율)</option>'
+          : '')
     +   '</select>'
     +   (card
         ? '<input type="text" class="form-input op-f-card c-card" maxlength="4"'

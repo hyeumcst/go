@@ -1121,7 +1121,8 @@ html { font-size: 16px; }
 
 /* 고객사 관리 — 담당자 줄 */
 .ct-row {
-  display: grid; grid-template-columns: minmax(80px,1fr) minmax(70px,0.8fr) minmax(100px,1.2fr) auto auto;
+  /* 이름 · 직급 · 부서를 한 덩어리로 적으므로 칸이 하나 줄었다 (2026-11-02) */
+  display: grid; grid-template-columns: minmax(140px,1.4fr) minmax(120px,1.2fr) auto auto;
   gap: 0.5rem; align-items: center;
   padding: 0.5rem 0.7rem; font-size: 0.9rem;
   background: var(--bg-secondary); border: 1px solid var(--border);
@@ -2139,6 +2140,13 @@ code {
   align-self: flex-end; padding-bottom: 0.55rem;
 }
 .inv-card .recv-one { display: flex; align-items: flex-end; gap: 0.35rem; flex: 1 1 24rem; }
+/* 받는 사람의 직급 (부서) — 읽기만 하는 꼬리표 (대표님 지시 2026-11-02) */
+.inv-card .recv-who {
+  flex: 0 1 auto; min-width: 0; align-self: flex-end;
+  padding-bottom: 0.45rem;
+  color: var(--text-muted); font-size: 0.82rem; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
 .inv-card .recv-btn {
   flex: 0 0 1.9rem; height: 2rem;
   border: 1px solid var(--border); background: var(--bg-input);

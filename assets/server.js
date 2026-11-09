@@ -1239,6 +1239,12 @@ function maskRecipients(list) {
     return {
       name: (r && r.name) || '',
       email: maskEmail(r && r.email),
+      /*
+       * 직급 · 부서는 가리지 않는다 — 담당자 명단에서 직원도 보는 것이고,
+       * 누구인지 가리는 데 쓴다. (대표님 지시 2026-11-02)
+       */
+      position: (r && r.position) || '',
+      affiliation: (r && r.affiliation) || '',
       masked: true
     };
   });
@@ -2316,7 +2322,14 @@ function writeInvoices(projectId, invoices, baseAmount, vatMode, discountBase, c
       .map(function (r) {
         return {
           name: String((r && r.name) || '').trim(),
-          email: String((r && r.email) || '').trim()
+          email: String((r && r.email) || '').trim(),
+          /*
+           * 직급 · 부서는 보여줄 때 쓴다 — 「이상하 과장 (총무팀)」.
+           * 이름 칸에 섞어 적으면 같은 분이 둘로 갈라지므로 따로 둔다.
+           * (대표님 지시 2026-11-02)
+           */
+          position: String((r && r.position) || '').trim(),
+          affiliation: String((r && r.affiliation) || '').trim()
         };
       })
       .filter(function (r) { return r.name || r.email; })
@@ -2475,7 +2488,9 @@ function contactLabel_(c) {
   if (!c) return '';
   var nm = String(c.name || '').trim();
   var ps = String(c.position || '').trim();
-  return ps ? nm + ' ' + ps : nm;
+  var dp = String(c.department || '').trim();
+  /* 화면의 whoLabel 과 같은 모양 — 「이상하 과장 (총무팀)」 (2026-11-02) */
+  return (ps ? nm + ' ' + ps : nm) + (dp ? ' (' + dp + ')' : '');
 }
 
 /**
@@ -4564,7 +4579,13 @@ function invoiceRecipients(u, q) {
         if (past[key]) return;
         past[key] = {
           name: name,
-          email: String((p && p.email) || '').trim()
+          email: String((p && p.email) || '').trim(),
+          /*
+           * 2026-11-02 부터 계산서에도 직급 · 부서를 함께 적어 둔다.
+           * 그 전에 끊은 것에는 없으니 빈 글자가 된다 — 그래도 탈이 없다.
+           */
+          position: String((p && p.position) || '').trim(),
+          affiliation: String((p && p.affiliation) || '').trim()
         };
       });
     });
@@ -4948,6 +4969,52 @@ function opCategoryOf_(taxType) {
   return String(taxType || '').indexOf('카드') === 0 ? '법인카드(교육운영)' : '협력사(운영비)';
 }
 
+/*
+ * 운영비로 보는 매입 분류 — opCategoryOf_ 가 내놓는 둘과 똑같다.
+ * 두 창구가 같은 줄을 보려면 보는 눈이 같아야 한다.
+ */
+var OP_CATEGORIES = ['협력사(운영비)', '법인카드(교육운영)'];
+
+/* 항목명으로 탭을 가른다. 여기 없는 말은 모두 기타다. */
+var OP_GUESS = [
+  { key: 'book',   words: ['교재', '워크북', '부교재', '인쇄', '교보재', '책자'] },
+  { key: 'supply', words: ['문구', '간식', '음료', '다과', '커피', '생수', '소모품'] }
+];
+
+/**
+ * 이 매입 줄은 운영비의 어느 탭인가. 운영비가 아니면 빈 글자.
+ * ────────────────────────────────────────────────
+ *
+ * 대표님 지시 (2026-11-09)
+ *   "왼쪽 메뉴 운영비 관리에서 작성하면 각 고객사 과정별로도 연동되어
+ *    등록이 되고 반대로 고객과 과정별로 운영비를 입력하면
+ *    왼쪽 메뉴 운영비 관리에서도 나와야 하는데 안나와"
+ *
+ * 한쪽 길만 뚫려 있었다. 운영비 관리에서 적은 줄에는 op_kind 를 찍어
+ * 두는데, 운영비 관리는 **그 찍힌 줄만** 보고 있었다. 그래서 과정등록의
+ * 매입에서 교재비를 적으면 과정등록에는 있고 운영비 관리에는 없었다.
+ *
+ * 이제 op_kind 를 **찍혀 있으면 그대로 쓰고, 없으면 그 자리에서 가린다.**
+ * 가르는 기준은 매입 분류다 — 협력사(운영비) · 법인카드(교육운영) 둘은
+ * 운영비 관리가 스스로 적을 때 쓰는 바로 그 분류다 (opCategoryOf_).
+ * 강사료 · 영업수수료는 여기 안 걸리므로 섞여 들어오지 않는다.
+ */
+function opKindOf_(r) {
+  if (!r) return '';
+  var k = String(r.op_kind || '').trim();
+  if (k) return opTab_(k) ? k : '';
+
+  if (OP_CATEGORIES.indexOf(String(r.category || '').trim()) < 0) return '';
+
+  var nm = String(r.name || '');
+  for (var i = 0; i < OP_GUESS.length; i++) {
+    for (var j = 0; j < OP_GUESS[i].words.length; j++) {
+      if (nm.indexOf(OP_GUESS[i].words[j]) >= 0) return OP_GUESS[i].key;
+    }
+  }
+  return 'etc';
+}
+
 /**
  * 세금·실지급액 — 화면(app.js 의 calcTax)과 **같은 셈이어야 한다.**
  * 둘이 어긋나면 화면에 보이는 값과 저장되는 값이 달라진다.
@@ -5011,10 +5078,14 @@ function opScheduleText_(p) {
 
 /* ───────── 매입 줄을 읽고 쓴다 ───────── */
 
-/** 그 과정의 운영비 줄들 (운영비 관리에서 적은 것만) */
+/**
+ * 그 과정의 운영비 줄들.
+ * 운영비 관리에서 적은 것과 과정등록에서 적은 것을 **함께** 본다
+ * (대표님 지시 2026-11-09 — 한쪽에서만 보이던 것을 고쳤다).
+ */
 function opRowsOf_(projectId) {
   return Db.where('project_expenses', function (r) {
-    return Number(r.project_id) === Number(projectId) && !!r.op_kind;
+    return Number(r.project_id) === Number(projectId) && !!opKindOf_(r);
   });
 }
 
@@ -5022,7 +5093,9 @@ function opRowsOf_(projectId) {
 function opItemOf_(r) {
   return {
     id: r.id,
-    kind: r.op_kind,
+    kind: opKindOf_(r),
+    /* 과정등록에서 적은 줄인지 — 화면에서 알려 드린다 (2026-11-09) */
+    from_form: !r.op_kind,
     name: r.name || '',
     vendor: r.affiliation || '',
     amount: r.total_amount || 0,
@@ -5040,8 +5113,9 @@ function opSumsOf_(rows) {
   var out = { book: 0, supply: 0, etc: 0, total: 0 };
   rows.forEach(function (r) {
     var amt = r.total_amount || 0;
-    if (out[r.op_kind] === undefined) return;
-    out[r.op_kind] += amt;
+    var k = opKindOf_(r);
+    if (out[k] === undefined) return;
+    out[k] += amt;
     out.total += amt;
   });
   return out;
@@ -5099,7 +5173,7 @@ function opCostsList(u, q) {
 
   /* 운영비 줄을 과정별로 모아 둔다 — 과정마다 표를 훑지 않기 위해서다 */
   var byProject = {};
-  Db.where('project_expenses', function (r) { return !!r.op_kind; })
+  Db.where('project_expenses', function (r) { return !!opKindOf_(r); })
     .forEach(function (r) { (byProject[Number(r.project_id)] = byProject[Number(r.project_id)] || []).push(r); });
 
   var rows = Db.all('projects').filter(function (p) {
@@ -5150,7 +5224,8 @@ function opCostsItems(u, projectId) {
 
   var items = { book: [], supply: [], etc: [] };
   opRowsOf_(p.id).forEach(function (r) {
-    if (items[r.op_kind]) items[r.op_kind].push(opItemOf_(r));
+    var k = opKindOf_(r);
+    if (items[k]) items[k].push(opItemOf_(r));
   });
   /* 적은 차례대로 — 번호가 작은 것이 먼저 적은 것이다 */
   Object.keys(items).forEach(function (k) {
@@ -5169,12 +5244,19 @@ function opCostsItems(u, projectId) {
 }
 
 /** 적어 넣은 한 줄을 다듬는다 */
-function opClean_(item) {
+function opClean_(item, had) {
   var tab = opTab_(String((item && item.kind) || ''));
   if (!tab) throw new Error('없는 탭입니다.');
 
   var tax = String((item && item.tax_type) || '').trim() || tab.taxes[0];
-  if (tab.taxes.indexOf(tax) < 0) {
+  /*
+   * 과정등록에서 적은 줄은 운영비 관리의 보기 밖 세율일 수 있다
+   * (과정등록에서는 3.3% 같은 것도 고를 수 있다). 그대로 두시는 한
+   * 받아 준다 — 안 그러면 다른 칸만 고쳐도 세율이 말없이 바뀐다.
+   * (2026-11-09)
+   */
+  var kept = had && String(had.tax_type || '').trim() === tax;
+  if (tab.taxes.indexOf(tax) < 0 && !kept) {
     throw new Error(tab.label + ' 에서는 ' + tab.taxes.join(' · ') + ' 중에서 고르셔야 합니다.');
   }
 
@@ -5217,18 +5299,23 @@ function opCostsSave(u, projectId, item) {
   var p = Db.get('projects', pid);
   if (!p) throw new Error('없는 과정입니다.');
 
-  var d = opClean_(item);
   var id = parseInt(item && item.id, 10) || 0;
+  var had = id ? Db.get('project_expenses', id) : null;
+  var d = opClean_(item, had);
 
   if (id) {
-    var had = Db.get('project_expenses', id);
     if (!had) throw new Error('없는 줄입니다.');
     if (Number(had.project_id) !== pid) throw new Error('다른 과정의 줄입니다.');
     /*
-     * 운영비 관리에서 만들지 않은 매입 줄(강사료 등)은 여기서 못 고친다.
+     * 운영비가 아닌 매입 줄(강사료 · 영업수수료 등)은 여기서 못 고친다.
      * 잘못 눌러 강사료가 교재비로 바뀌는 일을 막는다.
+     *
+     * 과정등록에서 적은 **운영비** 줄은 고칠 수 있다 — 두 창구가 같은
+     * 줄을 보는 것이므로 한쪽에서만 못 고칠 까닭이 없다 (2026-11-09).
+     * 한 번 고치면 op_kind 가 찍히므로, 그 뒤로는 항목명을 바꿔도
+     * 탭이 따라 움직이지 않는다 (opClean_ 이 찍어 준다).
      */
-    if (!had.op_kind) throw new Error('과정등록에서 적은 매입 줄은 여기서 고칠 수 없습니다.');
+    if (!opKindOf_(had)) throw new Error('운영비가 아닌 매입 줄은 여기서 고칠 수 없습니다.');
     Db.update('project_expenses', id, d);
   } else {
     d.project_id = pid;
@@ -5245,7 +5332,8 @@ function opCostsDelete(u, expenseId) {
   var id = Number(expenseId);
   var row = Db.get('project_expenses', id);
   if (!row) throw new Error('없는 줄입니다.');
-  if (!row.op_kind) throw new Error('과정등록에서 적은 매입 줄은 여기서 지울 수 없습니다.');
+  /* 과정등록에서 적은 운영비 줄도 지울 수 있다 (2026-11-09) */
+  if (!opKindOf_(row)) throw new Error('운영비가 아닌 매입 줄은 여기서 지울 수 없습니다.');
 
   var pid = Number(row.project_id);
   Db.remove('project_expenses', id);
@@ -6516,15 +6604,31 @@ function recvField_(raw, field) {
 
 /** 쉼표로 이은 세 글자를 받는사람 목록으로 되돌린다 */
 /* 연락처는 받지 않는다 — 이름과 이메일뿐이다 (대표님 지시 2026-10-28) */
-function toRecipients_(names, emails) {
+function toRecipients_(names, emails, keep) {
   var sp = function (v) {
     return String(v || '').split(',').map(function (x) { return x.trim(); });
   };
+  /*
+   * 엑셀에는 직급 · 부서 칸이 없다. 칸을 더 만들지 않는 대신, 이름이
+   * 그대로인 분은 적어 두었던 직급 · 부서를 이어 붙인다 — 안 그러면
+   * 엑셀을 올릴 때마다 조용히 지워진다. (대표님 지시 2026-11-02)
+   */
+  var had = {};
+  unwrap_(keep, []).forEach(function (r) {
+    var k = String((r && r.name) || '').trim();
+    if (k) had[k] = r;
+  });
+
   var n = sp(names), e = sp(emails);
   var out = [];
   for (var i = 0; i < n.length; i++) {
     if (!n[i] && !e[i]) continue;
-    out.push({ name: n[i] || '', email: e[i] || '' });
+    var old = had[n[i] || ''] || {};
+    out.push({
+      name: n[i] || '', email: e[i] || '',
+      position: String(old.position || '').trim(),
+      affiliation: String(old.affiliation || '').trim()
+    });
   }
   return out.slice(0, 2);
 }
@@ -7252,7 +7356,9 @@ function bulkNormalize_(key, obj, before) {
       var b = before || {};
       out.recipients = JSON.stringify(toRecipients_(
         obj._recv_name !== undefined ? obj._recv_name : recvField_(b.recipients, 'name'),
-        obj._recv_email !== undefined ? obj._recv_email : recvField_(b.recipients, 'email')
+        obj._recv_email !== undefined ? obj._recv_email : recvField_(b.recipients, 'email'),
+        /* 이름이 그대로인 분의 직급 · 부서는 이어 붙인다 (2026-11-02) */
+        b.recipients
       ));
     }
     if (out.company !== undefined) out.company = normalizeCompany(out.company);
