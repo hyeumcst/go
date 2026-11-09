@@ -5063,8 +5063,25 @@ async function nameSearch_(inputEl, itemId, category) {
            */
           t.instructor_id = (where === '강사' && picked.id) ? picked.id : null;
 
+          /*
+           * 소속은 **비어 있을 때만** 채운다. (대표님 지시 2026-11-09)
+           *   "협력사의 경우 분류를 소속에 기재를 해주든지 해"
+           *
+           * 협력사에는 소속이 없고 분류가 있다. 그 분류를 소속 칸에
+           * 적어 둔다 — 그래야 「태진애드컴」 이 무엇 하는 업체인지 줄에서
+           * 바로 보인다. 이름 칸에 「태진애드컴 (교재)」 라고 넣으면
+           * 괄호까지 이름으로 저장되어 협력사가 하나 더 생기므로,
+           * 한 칸에 몰아 적지 않고 칸을 나눠 적는다.
+           *
+           * 이미 적어 두신 소속은 덮지 않는다 — 이름만 바로잡을 때
+           * 소속이 바뀌면 안 된다 (대표님 지시 2026-11-02).
+           */
+          if (!String(t.affiliation || '').trim()) {
+            const home = (where === '협력사') ? picked.category : picked.affiliation;
+            if (home) t.affiliation = home;
+          }
+
           if (!fixing) {
-            if (picked.affiliation) t.affiliation = picked.affiliation;
             if (picked.default_tax_type) t.tax_type = picked.default_tax_type;
             if (picked.default_unit_price && !t.is_manual) t.unit_price = picked.default_unit_price;
             if (where === '강사' && !t.unit) t.unit = '시간';

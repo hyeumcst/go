@@ -5071,7 +5071,11 @@ function opKindOf_(r) {
   var byCat = pt ? opGuess_(pt.category) : '';
   if (byCat) return byCat;
 
-  return opGuess_(r.name) || 'etc';
+  /*
+   * 과정등록에서 협력사를 고르시면 분류가 소속 칸에 적힌다 (2026-11-09).
+   * 명부에서 못 찾은 업체라도 그 말로 가릴 수 있다.
+   */
+  return opGuess_(r.affiliation) || opGuess_(r.name) || 'etc';
 }
 
 /**
