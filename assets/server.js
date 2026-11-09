@@ -1863,8 +1863,37 @@ function invoiceRequestSend(u, invoiceId, b) {
 
   return {
     message: '발행요청을 보냈습니다. (' + to.join(', ') + ')',
-    invoice_id: id, sent_to: to, sent_at: row.sent_at, sent_by: who
+    invoice_id: id, sent_to: to, sent_at: row.sent_at, sent_by: who,
+    /*
+     * 적어 둔 줄의 번호. 메일이 끝내 안 나가면 이 줄을 도로 지운다.
+     * (대표님 지시 2026-11-09 — 「발행요청을 했는데 메일이 안와」)
+     *
+     * 브라우저에서는 MailApp 이 메일을 적어 두기만 하고, 실제로 보내는
+     * 일은 그 뒤에 앱스스크립트가 한다. 그래서 여기까지 왔다는 것이
+     * 「메일이 나갔다」는 뜻이 아니다 — 그런데도 이 줄을 적어 두면
+     * 화면에 「✓ 요청함」 이 떠서, 보낸 줄 아시게 된다.
+     */
+    request_id: row.id
   };
+}
+
+/**
+ * 방금 적어 둔 발행요청 줄을 도로 지운다.
+ *   DELETE /invoices/requests/<번호>
+ *
+ * 메일이 안 나갔을 때만 쓴다. 적은 사람만 지울 수 있다 —
+ * 남의 요청 기록을 지우는 길이 되면 안 된다.
+ */
+function invoiceRequestUndo(u, requestId) {
+  if (!u) throw new Error('로그인이 필요합니다.');
+  var id = Number(requestId);
+  var row = Db.get('invoice_requests', id);
+  if (!row) return { message: '이미 지워졌습니다.' };
+  if (userKey_(row.sent_by) !== userKey_(u.username) && !isAdmin(u)) {
+    throw new Error('내가 보낸 요청만 되돌릴 수 있습니다.');
+  }
+  Db.remove('invoice_requests', id);
+  return { message: '요청함 표시를 지웠습니다.', request_id: id };
 }
 
 /** 기억할 때 쓰는 열쇠 — 과정번호와 몇 장째 */
@@ -7594,6 +7623,8 @@ function route_(u, method, path, b, q) {
     if (PUT && a && c === 'paid') return invoiceSetPaid(u, a, b);
     // 발행 담당자에게 메일로 요청을 보낸다
     if (POST && a && c === 'request') return invoiceRequestSend(u, a, b);
+    /* 메일이 안 나갔으면 「요청함」 표시를 도로 지운다 (2026-11-09) */
+    if (DEL && a === 'requests' && c) return invoiceRequestUndo(u, c);
   }
 
   /* ───── 고객사 ───── */

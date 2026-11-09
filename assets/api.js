@@ -92,7 +92,23 @@ const API = {
       if (typeof fbTakeMails === 'function') {
         const mails = fbTakeMails();
         for (let i = 0; i < mails.length; i++) {
-          await this.sendMail(mails[i]);
+          try {
+            await this.sendMail(mails[i]);
+          } catch (err) {
+            /*
+             * 메일이 끝내 안 나갔으면 적어 둔 「요청함」을 도로 지운다.
+             * (대표님 지시 2026-11-09 — 「발행요청을 했는데 메일이 안와」)
+             *
+             * 적어 두는 일은 이 브라우저가 이미 끝냈다. 그대로 두면
+             * 화면에 「✓ 요청함」 이 떠서 보낸 줄 아시게 되고, 다음에
+             * 열었을 때도 그렇게 보인다. 안 나갔으면 안 나간 대로 보여야 한다.
+             */
+            if (v && v.request_id) {
+              try { await fbHandle('DELETE', '/invoices/requests/' + v.request_id, null, {}); }
+              catch (e2) { /* 되돌리기까지 막히면 알려 드릴 길이 없다 — 메일 오류만 보여드린다 */ }
+            }
+            throw err;
+          }
         }
       }
       if (method === 'GET') this._cache[key] = { at: Date.now(), v: v };
