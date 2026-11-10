@@ -5169,8 +5169,15 @@ async function saveProject(opt) {
       if (!quiet) showToast(새로 ? '등록되었습니다.' : '저장되었습니다.', 'success');
       navigate(afterProjectRoute());
     }
+    /*
+     * ★ 저장이 됐다고 알려 준다. 발행요청이 이 답을 보고 보낼지를 정한다.
+     * 이 줄이 빠져 있어서 발행요청이 매번 조용히 멈췄다.
+     * (대표님이 알려주심 2026-11-10 — 「저장되었습니다」 뒤에 아무 일도 없었다)
+     */
+    return true;
   } catch(err) {
     showToast(err.message, 'error');
+    return false;
   }
 }
 
