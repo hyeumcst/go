@@ -5096,7 +5096,16 @@ async function nameSearch_(inputEl, itemId, category) {
 }
 
 // --- 과정 저장 ---
-async function saveProject() {
+/**
+ * 과정 저장.
+ *
+ * @param {object} [opt] quiet 가 참이면 「저장되었습니다」를 안 띄운다.
+ *   발행요청이 보내기 전에 몰래 한 번 저장하는데, 그때 저장 알림이
+ *   뜨면 **요청을 눌렀는데 저장했다고 나와** 헷갈린다.
+ *   (대표님이 알려주심 2026-11-10)
+ */
+async function saveProject(opt) {
+  const quiet = !!(opt && opt.quiet);
   const p = {
     client_name: document.getElementById('p-client-name').value,
     client_id: document.getElementById('p-client-id').value || null,
@@ -5151,11 +5160,13 @@ async function saveProject() {
     const 새로 = !currentProject;
     if (id) {
       await renderProjectForm(id);
-      showToast(새로 ? '등록되었습니다. 이어서 고치실 수 있습니다.'
-                     : '저장되었습니다.', 'success');
+      if (!quiet) {
+        showToast(새로 ? '등록되었습니다. 이어서 고치실 수 있습니다.'
+                       : '저장되었습니다.', 'success');
+      }
     } else {
       // 번호를 못 받았으면 들고 있을 것이 없다 — 목록으로 간다 (전과 같게)
-      showToast(새로 ? '등록되었습니다.' : '저장되었습니다.', 'success');
+      if (!quiet) showToast(새로 ? '등록되었습니다.' : '저장되었습니다.', 'success');
       navigate(afterProjectRoute());
     }
   } catch(err) {
@@ -8198,15 +8209,19 @@ async function requestFromForm(invoiceId, again) {
   const at = State.invoices.findIndex(function (x) { return x.id === invoiceId; });
   const it = State.invoices[at] || {};
   const ask = again
-    ? '이미 ' + (it.requested_at ? it.requested_at + ' 에 ' : '') + '요청했습니다.\n다시 보낼까요?'
+    ? '이미 ' + (it.requested_at ? it.requested_at + ' 에 ' : '') + '요청했습니다.\n다시 보낼까요?\n(화면에 적으신 것을 먼저 저장한 뒤 보냅니다)'
     : '세금계산서 담당자에게 발행요청 메일을 보낼까요?\n(먼저 저장한 뒤 보냅니다)';
   if (!confirm(ask)) return;
 
   const note = prompt('함께 남길 말이 있으면 적어주세요. (없으면 그냥 확인)', '');
   if (note === null) return;
 
-  /* ★ 화면에 적으신 것이 그대로 담기도록 먼저 저장한다 */
-  if (!(await saveProject())) return;
+  /*
+   * ★ 화면에 적으신 것이 그대로 담기도록 먼저 저장한다.
+   * 저장 알림은 띄우지 않는다 — 요청을 누르셨는데 「저장되었습니다」 가
+   * 뜨면 무슨 일이 일어난 것인지 알 수 없다. (대표님이 알려주심 2026-11-10)
+   */
+  if (!(await saveProject({ quiet: true }))) return;
 
   const fresh = (at >= 0 ? State.invoices[at] : null) || {};
   if (!fresh.id) {
