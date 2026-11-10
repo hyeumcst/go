@@ -5117,11 +5117,13 @@ async function saveProject() {
     expenses: State.expenseItems
   };
 
-  if(!p.course_name) return showToast('과정명을 입력해주세요.', 'warning');
-  if(!p.client_name) return showToast('고객사명을 입력해주세요.', 'warning');
-  if(!p.schedule_dates.length) return showToast('교육일정을 입력해주세요.', 'warning');
-  if(p.schedule_type === '차수' && p.schedule_dates.length < 2)
-    return showToast('차수는 2차수 이상이어야 합니다. 차수를 추가하거나 \u0027기간\u0027을 선택해주세요.', 'warning');
+  if(!p.course_name) { showToast('과정명을 입력해주세요.', 'warning'); return false; }
+  if(!p.client_name) { showToast('고객사명을 입력해주세요.', 'warning'); return false; }
+  if(!p.schedule_dates.length) { showToast('교육일정을 입력해주세요.', 'warning'); return false; }
+  if(p.schedule_type === '차수' && p.schedule_dates.length < 2) {
+    showToast('차수는 2차수 이상이어야 합니다. 차수를 추가하거나 \u0027기간\u0027을 선택해주세요.', 'warning');
+    return false;
+  }
 
   /*
    * 저장한 뒤에도 그 화면에 그대로 있는다. (대표님 지시 2026-10-27)
@@ -8177,24 +8179,49 @@ function formReqBtn(it) {
 }
 
 /** 과정 등록 화면에서 발행요청 보내기 */
+/**
+ * 발행요청 — 화면에 적으신 그대로 나가야 한다.
+ * ────────────────────────────────────────────────
+ *
+ * 대표님이 알려주심 (2026-11-10)
+ *   항목도 발행일도 받는사람도 비어 있는 메일이 발행 담당자에게 갔다.
+ *
+ * 메일은 **저장된 계산서**를 읽어 짓는다. 그런데 발행요청 단추는 저장
+ * 여부를 보지 않았다. 과정을 한 번 저장하면 매출 전액짜리 빈 계산서가
+ * 한 장 저절로 생기는데, 그 뒤 화면에서 항목 · 받는사람을 적고
+ * **저장하지 않은 채** 발행요청을 누르면 그 빈 장이 그대로 나갔다.
+ *
+ * 그래서 보내기 전에 먼저 저장한다. 저장이 안 되면 보내지 않는다.
+ */
 async function requestFromForm(invoiceId, again) {
-  const it = State.invoices.filter(function (x) { return x.id === invoiceId; })[0] || {};
+  /* 저장하면 계산서 번호가 바뀐다 (writeInvoices 가 지우고 다시 만든다) */
+  const at = State.invoices.findIndex(function (x) { return x.id === invoiceId; });
+  const it = State.invoices[at] || {};
   const ask = again
     ? '이미 ' + (it.requested_at ? it.requested_at + ' 에 ' : '') + '요청했습니다.\n다시 보낼까요?'
-    : '세금계산서 담당자에게 발행요청 메일을 보낼까요?';
+    : '세금계산서 담당자에게 발행요청 메일을 보낼까요?\n(먼저 저장한 뒤 보냅니다)';
   if (!confirm(ask)) return;
 
   const note = prompt('함께 남길 말이 있으면 적어주세요. (없으면 그냥 확인)', '');
   if (note === null) return;
 
+  /* ★ 화면에 적으신 것이 그대로 담기도록 먼저 저장한다 */
+  if (!(await saveProject())) return;
+
+  const fresh = (at >= 0 ? State.invoices[at] : null) || {};
+  if (!fresh.id) {
+    showToast('저장한 뒤 그 계산서를 찾지 못했습니다. 다시 눌러주세요.', 'error');
+    return;
+  }
+
   try {
-    const r = await API.post('/invoices/' + invoiceId + '/request', { note: note });
+    const r = await API.post('/invoices/' + fresh.id + '/request', { note: note });
     showToast(r.message, 'success');
     // 보낸 표시를 바로 반영한다 (화면을 다시 불러오지 않고)
-    it.requested = true;
-    it.requested_at = r.sent_at;
-    it.requested_by = r.sent_by;
-    it.requested_count = (it.requested_count || 0) + 1;
+    fresh.requested = true;
+    fresh.requested_at = r.sent_at;
+    fresh.requested_by = r.sent_by;
+    fresh.requested_count = (fresh.requested_count || 0) + 1;
     renderInvoices();
   } catch (e) {
     showToast(e.message, 'error');

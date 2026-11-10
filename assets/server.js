@@ -1774,6 +1774,21 @@ function invoiceRequestSend(u, invoiceId, b) {
   var p = Db.get('projects', inv.project_id);
   if (!p) throw new Error('과정을 찾을 수 없습니다.');
 
+  /*
+   * 빈 계산서로는 요청을 보내지 않는다. (대표님이 알려주심 2026-11-10)
+   *
+   * 항목도 받는사람도 없는 메일이 발행 담당자에게 가 봐야 끊을 수가 없다.
+   * 화면에서 저장하지 않고 누르셨을 때 이렇게 된다 — 메일은 **저장된**
+   * 계산서를 읽기 때문이다. 무엇이 비었는지 알려 드리고 멈춘다.
+   */
+  var miss = [];
+  if (!unwrap_(inv.items, []).length) miss.push('항목(품목)');
+  if (!unwrap_(inv.recipients, []).length) miss.push('받는 사람');
+  if (miss.length) {
+    throw new Error('저장된 계산서에 ' + miss.join(' · ') + ' 이(가) 비어 있어 보내지 않았습니다.' + '\n'
+      + '화면에 적으신 뒤 [저장]을 누르고 다시 요청해주세요.');
+  }
+
   var to = invoiceRequestTo_();
   if (!to.length) throw new Error('받을 담당자를 찾지 못했습니다.');
 
