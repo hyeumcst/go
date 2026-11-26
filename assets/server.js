@@ -1570,6 +1570,27 @@ function mailSend(u, b) {
   return { message: '메일을 보냈습니다.', to: to, quota: left };
 }
 
+/**
+ * 그 고객사 담당자 명단에서 이메일을 찾는다. 못 찾으면 빈 글자.
+ * 이름에 직급이 붙어 적힌 것도 견줄 수 있게 recvKey_ 로 맞춘다.
+ */
+function contactMailOf_(clientId, name) {
+  var want = recvKey_(name);
+  if (!want || !clientId) return '';
+  var hit = '';
+  Db.where('contacts', function (c) {
+    return c.is_active && Number(c.client_id) === Number(clientId);
+  }).forEach(function (c) {
+    if (hit) return;
+    var nm = String(c.name || '').trim();
+    var ps = String(c.position || '').trim();
+    if (recvKey_(nm) === want || (ps && recvKey_(nm + ps) === want)) {
+      hit = String(c.email || '').trim();
+    }
+  });
+  return hit.indexOf('*') >= 0 ? '' : hit;
+}
+
 /** 돈을 보기 좋게 */
 function won_(v) {
   return Number(v || 0).toLocaleString('ko-KR') + '원';
@@ -1797,7 +1818,19 @@ function invoiceRequestSend(u, invoiceId, b) {
   var when = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
   var note = String((b && b.note) || '').trim().slice(0, 500);
 
-  var recv = unwrap_(inv.recipients, []);
+  /*
+   * 가려진 주소가 박힌 장이 이미 있다 (2026-11-27 전에 직원이 저장한 것).
+   * 보낼 때 담당자 명단에서 진짜 주소를 찾아 되살린다 — 발행 담당자가
+   * 「jk*****@…」 를 받아 봐야 어디로 보낼지 알 수 없다.
+   */
+  var recv = unwrap_(inv.recipients, []).map(function (r) {
+    var em = String((r && r.email) || '').trim();
+    /* 가려졌거나 비어 있으면 담당자 명단에서 찾아 채운다 */
+    if (em && em.indexOf('*') < 0) return r;
+    var o = shallow_(r);
+    o.email = contactMailOf_(p.client_id, (r && r.name) || '');
+    return o;
+  });
   var recvText = recv.length
     ? recv.map(function (r) {
         return (r.name || '') + (r.email ? ' <' + r.email + '>' : '');
@@ -2359,7 +2392,35 @@ function unwrap_(v, fallback) {
  * 세금계산서를 다시 써넣는다.
  * 한 장도 안 넣으면 매출 전액짜리 1장을 자동으로 만든다(발행일·입금일 없음).
  */
+/** 그 과정의 고객사 번호 (없으면 0) */
+function clientOfProject_(projectId) {
+  var p = Db.get('projects', Number(projectId));
+  return p ? Number(p.client_id || 0) : 0;
+}
+
 function writeInvoices(projectId, invoices, baseAmount, vatMode, discountBase, company) {
+  /*
+   * ★ 지우기 전에, 적혀 있던 받는 사람의 **진짜** 이메일을 챙겨 둔다.
+   *
+   * 직원 화면에는 이메일이 가려져서 간다 — 「jk*****@diningbrands.com」.
+   * 개인정보라서 그렇게 한 것인데, 그 화면에서 저장하면 가려진 글자가
+   * 그대로 덮어써졌다. 그러면 발행요청 메일에도 가려진 주소가 나가서
+   * 발행 담당자가 어디로 보낼지 알 수 없다.
+   * (대표님이 알려주심 2026-11-27)
+   *
+   * 2026-11-10 에 발행요청이 **보내기 전에 저장**하게 바뀌면서,
+   * 직원이 요청을 누를 때마다 이 일이 일어나게 됐다.
+   */
+  var hadMail = {};
+  Db.where('project_invoices', function (r) { return r.project_id === projectId; })
+    .forEach(function (r) {
+      unwrap_(r.recipients, []).forEach(function (p) {
+        var nm = recvKey_((p && p.name) || '');
+        var em = String((p && p.email) || '').trim();
+        if (nm && em && em.indexOf('*') < 0) hadMail[nm] = em;
+      });
+    });
+
   Db.removeWhere('project_invoices', function (r) { return r.project_id === projectId; });
 
   var list = Array.isArray(invoices) ? invoices.filter(Boolean) : [];
@@ -2378,9 +2439,29 @@ function writeInvoices(projectId, invoices, baseAmount, vatMode, discountBase, c
   var cleanRecipients = function (v) {
     return JSON.stringify((Array.isArray(v) ? v : [])
       .map(function (r) {
+        var nm = String((r && r.name) || '').trim();
+        var em = String((r && r.email) || '').trim();
+        /*
+         * 가려진 주소(별표가 든 글자)는 저장하지 않는다.
+         * 전에 적혀 있던 진짜 주소를 되살리고, 그것도 없으면 비워 둔다 —
+         * 비어 있으면 담당자 명단에서 다시 채울 수 있지만, 가려진 글자가
+         * 박히면 되살릴 길이 없다. (대표님이 알려주심 2026-11-27)
+         */
+        /*
+         * ★ 별표가 든 글자만 막는다. masked 표시로 막으면, 직원이 주소를
+         *   **고쳐 적어도** 옛 주소로 되돌아간다 — 고칠 길이 없어진다.
+         *   진짜 메일 주소에는 별표가 들어가지 않는다.
+         */
+        if (em.indexOf('*') >= 0) {
+          /*
+           * 전에 적혀 있던 진짜 주소 → 그것도 없으면 담당자 명단에서.
+           * 2026-11-27 전에 가려진 채 박힌 장들이 이렇게 스스로 낫는다.
+           */
+          em = hadMail[recvKey_(nm)] || contactMailOf_(clientOfProject_(projectId), nm);
+        }
         return {
-          name: String((r && r.name) || '').trim(),
-          email: String((r && r.email) || '').trim(),
+          name: nm,
+          email: em,
           /*
            * 직급 · 부서는 보여줄 때 쓴다 — 「이상하 과장 (총무팀)」.
            * 이름 칸에 섞어 적으면 같은 분이 둘로 갈라지므로 따로 둔다.
