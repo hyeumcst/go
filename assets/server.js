@@ -1240,7 +1240,7 @@ function maskRecipients(list) {
   return (Array.isArray(list) ? list : []).map(function (r) {
     return {
       name: (r && r.name) || '',
-      email: maskEmail(r && r.email),
+      email: String((r && r.email) || ''),
       /*
        * 직급 · 부서는 가리지 않는다 — 담당자 명단에서 직원도 보는 것이고,
        * 누구인지 가리는 데 쓴다. (대표님 지시 2026-11-02)
@@ -2541,6 +2541,66 @@ function writeInvoices(projectId, invoices, baseAmount, vatMode, discountBase, c
   });
 
   Db.insertMany('project_invoices', rows);
+
+  /* 적으신 받는 사람을 고객사 담당자 명단에 올린다 (2026-11-27) */
+  rows.forEach(function (r) { learnRecipients_(projectId, unwrap_(r.recipients, [])); });
+}
+
+/**
+ * 계산서에 적으신 받는 사람을 고객사 담당자 명단에 올린다.
+ * ────────────────────────────────────────────────
+ *
+ * 대표님 지시 (2026-11-27)
+ *   "세금계산서 발행 시 받는 사람 입력할 때 기존에 없던 정보라면
+ *    고객사 명단에 자동으로 저장이 되도록 해줘"
+ *
+ * 한 번 적은 분을 다음에 또 손으로 적지 않으시도록, 적는 그 자리에서
+ * 명단에 쌓인다. 다음부터는 받는사람 칸에서 바로 골라 쓰실 수 있다.
+ *
+ * ★ 이름과 이메일이 **다 있을 때만** 올린다. 이름만 적힌 줄까지
+ *   올리면 오타가 그대로 담당자로 쌓인다.
+ * ★ 이미 있는 분은 새로 만들지 않는다. 「김재용」 과 「김재용차장」 처럼
+ *   직급이 붙어 적힌 이름도 같은 분으로 본다 (recvKey_).
+ *   이메일만 비어 있던 분은 그 자리에서 채워 드린다.
+ */
+function learnRecipients_(projectId, list) {
+  var cid = clientOfProject_(projectId);
+  if (!cid) return 0;
+
+  var byKey = {};
+  Db.where('contacts', function (c) { return Number(c.client_id) === cid; })
+    .forEach(function (c) {
+      var nm = String(c.name || '').trim(), ps = String(c.position || '').trim();
+      if (nm) byKey[recvKey_(nm)] = c;
+      if (nm && ps) byKey[recvKey_(nm + ps)] = c;
+    });
+
+  var made = 0;
+  (list || []).forEach(function (r) {
+    var nm = String((r && r.name) || '').trim();
+    var em = String((r && r.email) || '').trim();
+    if (!nm || !em || em.indexOf('*') >= 0) return;
+
+    var had = byKey[recvKey_(nm)];
+    if (had) {
+      /* 이름은 아는데 이메일만 비어 있던 분 — 채워 드린다 */
+      if (!String(had.email || '').trim()) {
+        Db.update('contacts', had.id, { email: em });
+        had.email = em;
+      }
+      return;
+    }
+
+    var row = Db.insert('contacts', {
+      client_id: cid, name: nm,
+      position: String((r && r.position) || '').trim(),
+      department: String((r && r.affiliation) || '').trim(),
+      email: em, is_active: 1
+    });
+    byKey[recvKey_(nm)] = { id: row.id, name: nm, email: em };
+    made++;
+  });
+  return made;
 }
 
 /** 매출 상세를 다시 써넣고 과정의 합계 칸을 갱신한다 */
@@ -2975,9 +3035,15 @@ function projectsGet(u, id) {
     .sort(function (a, b) { return ((a.seq || 0) - (b.seq || 0)) || (a.id - b.id); })
     .map(function (r) {
       var o = shallow_(r);
-      var people = unwrap_(r.recipients, []);
-      // 관리자가 아니면 이메일·연락처를 가려서 보낸다
-      o.recipients = canRaw ? people : maskRecipients(people);
+      /*
+       * 받는 사람의 이메일은 직원에게도 온전히 보인다.
+       * (대표님 지시 2026-11-27 — "직원화면에서도 이메일은 전체가 다 보여야 해")
+       *
+       * 전에는 가려서 보냈다. 그런데 계산서를 적고 발행요청을 보내는
+       * 사람이 바로 직원이라, 가려 두면 어디로 가는지 눈으로 볼 수가 없다.
+       * 게다가 그 화면에서 저장하면 가려진 글자가 저장되어 버렸다.
+       */
+      o.recipients = unwrap_(r.recipients, []);
       o.items = unwrap_(r.items, []);
       // 발행요청을 보냈는지 — 과정 등록 화면에서도 바로 보이게
       var rq = reqMap[reqKey_(r.project_id, r.seq)];
@@ -4562,9 +4628,8 @@ function invoicesList(u, q) {
     o.project_company = p.company;
     o.client_name = p.client_id ? (clientName[p.client_id] || null) : null;
     o.company = i.company || COMPANIES[0];
-    var people = unwrap_(i.recipients, []);
-    // 관리자가 아니면 이메일·연락처를 가려서 보낸다
-    o.recipients = raw ? people : maskRecipients(people);
+    /* 받는 사람은 직원에게도 온전히 보인다 (대표님 지시 2026-11-27) */
+    o.recipients = unwrap_(i.recipients, []);
     o.items = unwrap_(i.items, []);
     // 발행요청을 보냈는지 (언제 · 누가 · 몇 번)
     var rq = reqMap[reqKey_(i.project_id, i.seq)];
@@ -4786,16 +4851,12 @@ function invoiceRecipients(u, q) {
   }
   list = list.slice(0, 12);
 
-  // 관리자가 아니면 가린 값만 내보낸다
-  if (isAdmin(u)) return { recipients: list };
-  var masked = maskRecipients(list);
-  /* 가려도 「어디서 왔는지」와 직급·부서는 남긴다 — 누구인지 가리는 데 필요하다 */
-  masked.forEach(function (m, i) {
-    m._from = list[i]._from;
-    m.position = list[i].position || '';
-    m.affiliation = list[i].affiliation || '';
-  });
-  return { recipients: masked };
+  /*
+   * 직원에게도 온전히 내보낸다. (대표님 지시 2026-11-27)
+   *   "직원화면에서도 이메일은 전체가 다 보여야 해"
+   * 계산서를 적고 발행요청을 보내는 사람이 바로 직원이다.
+   */
+  return { recipients: list };
 }
 
 /** 입금일만 바꾼다 — 비우면 다시 미수가 된다 */
