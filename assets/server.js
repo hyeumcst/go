@@ -3355,15 +3355,15 @@ function contactsDelete(u, id) {
  *    그 정보는 담당자 PC 의 오프라인 엑셀에서 「강사코드(id)」로 연결합니다.
  */
 
-/** 관리자가 아니면 이메일을 가려서 내보낸다 */
+/**
+ * 강사 이메일도 가리지 않는다. (대표님 지시 2026-11-27)
+ *   "강사 이메일도 다 보이게 해줘,, 직원에게도
+ *    이메일은 무조건 다 보여야 해"
+ *
+ * 부르는 자리를 그대로 두려고 함수는 남긴다.
+ */
 function hideEmail_(u, rows) {
-  if (isAdmin(u)) return rows;
-  return rows.map(function (r) {
-    var o = shallow_(r);
-    o.email = maskEmail(r.email);
-    o.masked = true;
-    return o;
-  });
+  return rows;
 }
 
 function cleanInstructor_(b) {
@@ -4055,6 +4055,16 @@ function analyticsGet(u, q) {
     }).map(function (o) {
       o.project_count = Object.keys(o._projs).length;
       delete o._projs;
+      /*
+       * 법인카드 명단에 올린 차례. (대표님 지시 2026-11-27)
+       *   "법인카드도 기본은 입력한 날짜순으로 나오게 해줘"
+       * 명단에 없는 뒤 4자리는 맨 뒤로 보낸다.
+       */
+      var card = Db.first('corp_cards', function (c) {
+        return String(c.last4 || '') === String(o.name);
+      });
+      o.added = card ? Number(card.id) : 999999;
+      o.added_at = card ? (card.created_at || '') : '';
       return o;
     }).sort(descBy_('amount'));
 

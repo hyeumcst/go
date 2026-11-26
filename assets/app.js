@@ -4494,69 +4494,32 @@ async function renderPartners() {
   } catch (e) { showToast(e.message, 'error'); }
 }
 
-/* ═══════════ 개인정보 가리기 ═══════════
+/* ═══════════ 이메일은 가리지 않는다 ═══════════
  *
- * 인터넷에 열어 두고 쓰기 때문에 이메일·연락처는 기본으로 가려 둡니다.
- *   관리자가 아닌 사람 → 서버가 가린 값만 보내므로 펼칠 수 없습니다
- *   관리자            → 눈 버튼을 누르면 펼쳐집니다 (다시 누르면 가려집니다)
+ * 대표님 지시 (2026-11-27)
+ *   "이메일이 가려져 있는데 이 기능 없애
+ *    무조건 이메일은 다 보이는 걸로 해줘
+ *    그리고 강사 이메일도 다 보이게 해줘,, 직원에게도
+ *    이메일은 무조건 다 보여야 해"
+ *
+ * 전에는 「dj****@mntech.co.kr 👁」 처럼 가리고 눈 버튼을 달았다.
+ * 계산서를 보내는 사람이 받는 주소를 눈으로 못 보면 일이 안 되고,
+ * 한 칸씩 눌러 펼치는 것도 번거로울 뿐이었다.
+ *
+ * 엑셀 내려받기의 「개인정보 제외」는 그대로 둔다 — 그건 가리는 것이
+ * 아니라 내려받으실 때 대표님이 고르시는 것이다.
  */
-const SHOWN = {};        // 펼쳐 놓은 칸
 let REDRAW = null;       // 지금 보고 있는 화면을 다시 그리는 함수
 
-function maskEmail(v) {
-  const t = String(v == null ? '' : v).trim();
-  if (!t) return '';
-  const at = t.lastIndexOf('@');
-  if (at < 1) return t.slice(0, 1) + '*'.repeat(Math.max(1, t.length - 1));
-  const id = t.slice(0, at);
-  const keep = id.length <= 2 ? 1 : 2;
-  return id.slice(0, keep) + '*'.repeat(Math.max(3, id.length - keep)) + t.slice(at);
-}
-
-function maskPhone(v) {
-  const t = String(v == null ? '' : v).trim();
-  if (!t) return '';
-  const d = t.replace(/[^0-9]/g, '');
-  if (d.length < 7) return t.slice(0, 1) + '*'.repeat(Math.max(1, t.length - 1));
-  return d.slice(0, 3) + '-****-' + d.slice(-4);
-}
-
 /**
- * 가린 값 + 눈 버튼.
- * @param {string} key   칸마다 다른 이름 (펼친 상태를 기억한다)
- * @param {string} value 원본 (관리자가 아니면 이미 가려져서 온다)
- * @param {string} kind  'email' | 'phone'
+ * 이메일 칸 — 적힌 그대로 보여준다. 가리지 않는다.
+ *
+ * 칸 이름(key)은 이제 쓰지 않지만, 부르는 자리를 그대로 두려고 받아만 둔다.
  */
-function privateCell(key, value, kind) {
+function privateCell(key, value) {
   const v = String(value == null ? '' : value).trim();
   if (!v) return '<span class="an-sub">-</span>';
-
-  // 서버가 이미 가려서 보낸 값은 그대로 둔다 (펼칠 원본이 없다)
-  const alreadyMasked = v.indexOf('*') !== -1;
-  if (alreadyMasked || !API.isAdmin()) {
-    return '<span class="pv masked">' + esc(v) + '</span>';
-  }
-
-  const open = !!SHOWN[key];
-  const shown = open ? v : (kind === 'phone' ? maskPhone(v) : maskEmail(v));
-  return '<span class="pv">'
-    + '<span class="pv-v' + (open ? ' on' : '') + '">' + esc(shown) + '</span>'
-    + '<button type="button" class="pv-eye" title="' + (open ? '다시 가리기' : '펼쳐 보기') + '"'
-    +   ' onclick="togglePrivate(\'' + esc(key) + '\', this)">' + (open ? '🙈' : '👁') + '</button>'
-    + '</span>';
-}
-
-/** 눈 버튼 — 그 칸만 펼치고 접는다 */
-function togglePrivate(key, btn) {
-  SHOWN[key] = !SHOWN[key];
-  const wrap = btn.closest('.pv');
-  const val = wrap && wrap.querySelector('.pv-v');
-  if (!val) return;
-  const raw = val.dataset.raw || val.innerText;
-  if (!val.dataset.raw) val.dataset.raw = raw;
-  // 다시 그리는 게 가장 확실하다 — 지금 화면을 그대로 새로 그린다
-  if (typeof REDRAW === 'function') REDRAW();
-  else btn.innerText = SHOWN[key] ? '🙈' : '👁';
+  return '<span class="pv">' + esc(v) + '</span>';
 }
 
 /** HTML 이스케이프 */
@@ -6726,7 +6689,7 @@ const ENT_DEFS = {
  * 찾으시는 분이 어디쯤 있는지 짐작이 되어야 하기 때문이다.
  * 법인카드는 이름이 뒤 4자리 숫자라 그대로 금액순으로 둔다.
  */
-const ENT_FIRST_SORT = { client: 'name', instructor: 'name', partner: 'name', card: 'amount' };
+const ENT_FIRST_SORT = { client: 'name', instructor: 'name', partner: 'name', card: 'added' };
 function entFirstSort(kind) { return ENT_FIRST_SORT[kind] || 'amount'; }
 
 const ENT = {
@@ -6759,6 +6722,20 @@ const ENT_SORTS = {
     ['count', '건수 많은순'],
     ['pcount', '과정수 많은순'],
     ['name', '가나다순']
+  ],
+  /*
+   * 법인카드는 이름이 뒤 4자리 숫자라 가나다순이 뜻이 없다.
+   * 명단에 올리신 차례로 보여 드리는 것이 기본이다.
+   * (대표님 지시 2026-11-27 — "기본은 입력한 날짜순으로")
+   */
+  card: [
+    ['added', '등록순'],
+    ['amount', '매입 많은순'],
+    ['amount_asc', '매입 적은순'],
+    ['payment', '실지급 많은순'],
+    ['count', '건수 많은순'],
+    ['pcount', '과정수 많은순'],
+    ['name', '번호순']
   ]
 };
 
@@ -6774,6 +6751,8 @@ function entSort(rows, mode, sort) {
     payment:    function (a, b) { return num(b.payment) - num(a.payment); },
     count:      function (a, b) { return num(b.count) - num(a.count); },
     pcount:     function (a, b) { return num(b.project_count) - num(a.project_count); },
+    /* 명단에 올리신 차례 — 먼저 올린 것이 위로 (2026-11-27) */
+    added:      function (a, b) { return num(a.added) - num(b.added); },
     name:       function (a, b) { return String(a.name).localeCompare(String(b.name), 'ko'); }
   };
   return rows.slice().sort(by[sort] || by.amount);
@@ -6847,7 +6826,9 @@ async function renderEntity(kind) {
       .map(m => opt(m, Number(m) + '월', ENT.month)).join(''),
     '  </select>',
     '  <select class="form-select" onchange="setEnt(\'sort\', this.value)">',
-    (ENT_SORTS[def.mode] || ENT_SORTS.expense).map(o => opt(o[0], o[1], ENT.sort)).join(''),
+    /* 법인카드는 제 보기를 따로 쓴다 (등록순이 있다) */
+    (ENT_SORTS[ENT.kind] || ENT_SORTS[def.mode] || ENT_SORTS.expense)
+      .map(o => opt(o[0], o[1], ENT.sort)).join(''),
     '  </select>',
     (ENT.q || ENT.month || ENT.tax ? '<button class="btn btn-ghost btn-sm" onclick="resetEnt()">✕ 조건 지우기</button>' : ''),
     '</div>',
