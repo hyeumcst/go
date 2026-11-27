@@ -2995,6 +2995,7 @@ function projectsFilters(u, q) {
 
 /** 과정 상세 */
 function projectsGet(u, id) {
+  repairMaskedRecipients_();   // 박혀 있는 별표 주소를 되살린다 (2026-11-27)
   id = Number(id);
   var p = Db.get('projects', id);
   if (!p) throw new Error('과정을 찾을 수 없습니다.');
@@ -4588,6 +4589,7 @@ function dashboardSummary(u, q) {
  *   q              고객사 · 과정명 · 받는사람 검색
  */
 function invoicesList(u, q) {
+  repairMaskedRecipients_();   // 박혀 있는 별표 주소를 되살린다 (2026-11-27)
   q = q || {};
   var clientName = {}, projById = {};
   Db.all('clients').forEach(function (c) { clientName[c.id] = c.name; });
@@ -4729,6 +4731,47 @@ function invoiceRequesters_() {
  * 지난 계산서에는 「김재용차장」 처럼 직급을 붙여 적어 두신 경우가 많다.
  * 띄어쓰기까지 따지면 「김재용 차장」 과 다른 사람이 되어 버린다.
  */
+/**
+ * 박혀 있는 「별표 주소」를 되살린다.
+ * ────────────────────────────────────────────────
+ *
+ * 대표님이 알려주심 (2026-11-27)
+ *   "다시 확인해줘 / 이메일이 안나오는게 있어"
+ *   (전경화 · jk*****@diningbrands.com · 나윤정 · yu*********@cu.co.kr)
+ *
+ * 화면에서 가리는 기능은 없앴는데, **저장된 값 자체가 별표**인 줄이
+ * 남아 있다. 직원 화면에 가려서 보내던 때에 그 화면에서 저장하면
+ * 가려진 글자가 그대로 박혔기 때문이다 (2026-11-27 에 막았다).
+ *
+ * 고객사 담당자 명단에서 진짜 주소를 찾아 되살린다. 명단에도 없으면
+ * 비운다 — 별표가 적힌 채로 두면 보낸 줄 알고 그대로 쓰시게 된다.
+ *
+ * 몇 번을 돌려도 탈이 없다. 되살릴 것이 없으면 아무것도 안 고친다.
+ */
+function repairMaskedRecipients_() {
+  var fixed = 0;
+  Db.all('project_invoices').forEach(function (r) {
+    var list = unwrap_(r.recipients, []);
+    if (!list.length) return;
+
+    var dirty = false;
+    var out = list.map(function (p) {
+      var em = String((p && p.email) || '').trim();
+      if (em.indexOf('*') < 0) return p;
+      dirty = true;
+      var proj = Db.get('projects', r.project_id);
+      var o = shallow_(p);
+      o.email = contactMailOf_(proj ? proj.client_id : 0, (p && p.name) || '');
+      return o;
+    });
+    if (dirty) {
+      Db.update('project_invoices', r.id, { recipients: JSON.stringify(out) });
+      fixed++;
+    }
+  });
+  return fixed;
+}
+
 function recvKey_(s) {
   return String(s || '').replace(/\s+/g, '').toLowerCase();
 }
